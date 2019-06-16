@@ -260,7 +260,11 @@ class EmojiPickerButton extends React.Component {
                     className={classNames(classes.pickerRoot, { [classes.pickerRootOpened]: open })}
                     onMouseEnter={this.handlePaperMouseEnter}
                     onMouseLeave={this.handlePaperMouseLeave}>
-                    <div className='emoji-picker-header'>
+                    <div className={classNames('emoji-picker-content', { 'emoji-picker-content-stickers': tab === 1 })}>
+                        {this.picker}
+                        {this.stickersPicker}
+                    </div>
+                    <div className='emoji-picker-footer'>
                         <Button
                             color={tab === 0 ? 'primary' : 'default'}
                             className={classes.headerButton}
@@ -273,10 +277,6 @@ class EmojiPickerButton extends React.Component {
                             onClick={this.handleStickersClick}>
                             {t('Stickers')}
                         </Button>
-                    </div>
-                    <div className={classNames('emoji-picker-content', { 'emoji-picker-content-stickers': tab === 1 })}>
-                        {this.picker}
-                        {this.stickersPicker}
                     </div>
                     <StickerPreview sticker={sticker} />
                 </div>
