@@ -35,6 +35,7 @@ const styles = theme => ({
     pickerRoot: {
         zIndex: theme.zIndex.modal,
         width: 338,
+        right: 0,
         overflowX: 'hidden',
         backgroundColor: theme.palette.background.paper,
         color: theme.palette.text.primary,

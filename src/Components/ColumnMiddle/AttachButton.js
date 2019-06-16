@@ -90,11 +90,11 @@ class AttachButton extends React.Component {
                     disableRestoreFocus={true}
                     anchorOrigin={{
                         vertical: 'top',
-                        horizontal: 'right'
+                        horizontal: 'left'
                     }}
                     transformOrigin={{
                         vertical: 'bottom',
-                        horizontal: 'right'
+                        horizontal: 'left'
                     }}
                     onClose={this.handleMenuClose}>
                     <MenuItem onClick={this.handleAttachPhoto} disabled={!canSendPhotos(chatId)}>
