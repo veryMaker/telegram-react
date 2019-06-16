@@ -8,7 +8,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { withTranslation } from 'react-i18next';
-import { getChatTitle } from '../../Utils/Chat';
+import { getChatTitle, isChatVerified } from '../../Utils/Chat';
 import ChatStore from '../../Stores/ChatStore';
 import './DialogTitleControl.css';
 
@@ -51,8 +51,14 @@ class DialogTitleControl extends React.Component {
         const { t, chatId, showSavedMessages } = this.props;
 
         const title = getChatTitle(chatId, showSavedMessages, t);
+        const isVerified = isChatVerified(chatId);
 
-        return <div className='dialog-title'>{title}</div>;
+        return (
+            <div className='dialog-title'>
+                {title}
+                {isVerified ? <div className='verified-badge' /> : null}
+            </div>
+        );
     }
 }
 

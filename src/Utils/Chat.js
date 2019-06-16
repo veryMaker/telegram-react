@@ -610,6 +610,25 @@ function getChatTitle(chatId, showSavedMessages = false, t = key => key) {
     return chat.title || t('HiddenName');
 }
 
+function isChatVerified(chatId) {
+    const chat = ChatStore.get(chatId);
+    if (!chat) return false;
+
+    switch (chat.type['@type']) {
+        case 'chatTypeSecret':
+        case 'chatTypePrivate':
+            const userId = chat.type.user_id;
+            const user = UserStore.get(userId);
+            return user && user.is_verified;
+
+        case 'chatTypeSupergroup':
+            const superGroupId = chat.type.supergroup_id;
+            const superGroup = SupergroupStore.get(superGroupId);
+            return superGroup && superGroup.is_verified;
+    }
+    return false;
+}
+
 function isMeChat(chatId) {
     const fallbackValue = false;
 
@@ -1188,6 +1207,7 @@ export {
     isChannelChat,
     isChatMember,
     getChatTitle,
+    isChatVerified,
     getGroupChatMembers,
     getChatFullInfo,
     hasBasicGroupId,
