@@ -34,3 +34,7 @@
 .messages-list-items {
     flex: 0 0 auto;
 }
+
+.messages-list-items:last-child {
+    margin-bottom: 24px;
+}
