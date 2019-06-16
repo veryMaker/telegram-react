@@ -11,6 +11,7 @@ import { compose } from 'recompose';
 import { withTranslation } from 'react-i18next';
 import withStyles from '@material-ui/core/styles/withStyles';
 import AttachFileIcon from '@material-ui/icons/AttachFile';
+import AttachLocationIcon from '@material-ui/icons/Room';
 import IconButton from '@material-ui/core/IconButton';
 import InsertDriveFileIcon from '@material-ui/icons/InsertDriveFile';
 import ListItemIcon from '@material-ui/core/ListItemIcon';
@@ -57,6 +58,15 @@ class AttachButton extends React.Component {
         if (!onAttachDocument) return;
 
         setTimeout(() => onAttachDocument(), ANIMATION_DURATION_300MS);
+    };
+
+    handleAttachLocation = () => {
+        this.handleMenuClose();
+
+        const { onAttachLocation } = this.props;
+        if (!onAttachLocation) return;
+
+        setTimeout(() => onAttachLocation(), ANIMATION_DURATION_300MS);
     };
 
     handleAttachPoll = () => {
@@ -108,6 +118,12 @@ class AttachButton extends React.Component {
                             <InsertDriveFileIcon />
                         </ListItemIcon>
                         <ListItemText primary={t('AttachDocument')} />
+                    </MenuItem>
+                    <MenuItem onClick={this.handleAttachLocation} disabled={!navigator.geolocation}>
+                        <ListItemIcon>
+                            <AttachLocationIcon />
+                        </ListItemIcon>
+                        <ListItemText primary={t('AttachLocation')} />
                     </MenuItem>
                     {!isPrivateChat(chatId) && (
                         <MenuItem onClick={this.handleAttachPoll} disabled={!canSendPolls(chatId)}>

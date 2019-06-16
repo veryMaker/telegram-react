@@ -340,6 +340,21 @@ class InputBoxControl extends Component {
         this.attachDocumentRef.current.click();
     };
 
+    handleAttachLocation = () => {
+        navigator.geolocation.getCurrentPosition(position => {
+            const content = {
+                '@type': 'inputMessageLocation',
+                location: {
+                    latitude: position.coords.latitude,
+                    longitude: position.coords.longitude
+                },
+                live_period: 0
+            };
+
+            this.onSendInternal(content, true, () => {});
+        });
+    };
+
     handleAttachDocumentComplete = () => {
         let files = this.attachDocumentRef.current.files;
         if (files.length === 0) return;
@@ -630,6 +645,7 @@ class InputBoxControl extends Component {
                                 chatId={chatId}
                                 onAttachPhoto={this.handleAttachPhoto}
                                 onAttachDocument={this.handleAttachDocument}
+                                onAttachLocation={this.handleAttachLocation}
                                 onAttachPoll={this.handleAttachPoll}
                             />
                         </div>
