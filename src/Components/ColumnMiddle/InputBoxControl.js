@@ -35,6 +35,7 @@ import FileStore from '../../Stores/FileStore';
 import StickerStore from '../../Stores/StickerStore';
 import TdLibController from '../../Controllers/TdLibController';
 import './InputBoxControl.css';
+import ContentEditable from 'react-contenteditable';
 
 const EmojiPickerButton = React.lazy(() => import('./../ColumnMiddle/EmojiPickerButton'));
 
@@ -58,39 +59,12 @@ class InputBoxControl extends Component {
 
         const chatId = ApplicationStore.getChatId();
 
-        this.innerHTML = null;
         this.state = {
             chatId: chatId,
             replyToMessageId: getChatDraftReplyToMessageId(chatId),
-            openPasteDialog: false
+            openPasteDialog: false,
+            innerHTML: ''
         };
-    }
-
-    shouldComponentUpdate(nextProps, nextState) {
-        const { theme, t } = this.props;
-        const { chatId, replyToMessageId, openPasteDialog } = this.state;
-
-        if (nextProps.theme !== theme) {
-            return true;
-        }
-
-        if (nextProps.t !== t) {
-            return true;
-        }
-
-        if (nextState.chatId !== chatId) {
-            return true;
-        }
-
-        if (nextState.replyToMessageId !== replyToMessageId) {
-            return true;
-        }
-
-        if (nextState.openPasteDialog !== openPasteDialog) {
-            return true;
-        }
-
-        return false;
     }
 
     componentDidMount() {
@@ -102,7 +76,7 @@ class InputBoxControl extends Component {
 
         this.setInputFocus();
         this.setDraft();
-        this.handleInput();
+        this.suggestStickers();
     }
 
     componentWillUnmount() {
@@ -121,9 +95,7 @@ class InputBoxControl extends Component {
         const { sticker, thumbnail, width, height } = item;
         if (!sticker) return;
 
-        this.newMessageRef.current.innerText = null;
-        this.newMessageRef.current.textContent = null;
-        this.innerHTML = null;
+        this.setState({ innerHTML: '' });
 
         const content = {
             '@type': 'inputMessageSticker',
@@ -175,8 +147,8 @@ class InputBoxControl extends Component {
         const { chatId } = this.state;
         if (chatId === update.nextChatId) return;
 
-        this.innerHTML = null;
         this.setState({
+            innerHTML: '',
             chatId: update.nextChatId,
             replyToMessageId: getChatDraftReplyToMessageId(update.nextChatId),
             openPasteDialog: false
@@ -186,15 +158,11 @@ class InputBoxControl extends Component {
     setDraft = () => {
         const { chatId } = this.state;
 
-        const element = this.newMessageRef.current;
-
         const draft = getChatDraft(chatId);
         if (draft) {
-            element.innerText = draft.text;
-            this.innerHTML = draft.text;
+            this.setState({ innerHTML: draft.text });
         } else {
-            element.innerText = null;
-            this.innerHTML = null;
+            this.setState({ innerHTML: '' });
         }
     };
 
@@ -205,7 +173,9 @@ class InputBoxControl extends Component {
         if (prevState.chatId !== this.state.chatId) {
             this.setInputFocus();
             this.setDraft();
-            this.handleInput();
+            this.suggestStickers();
+        } else if (prevState.innerHTML !== this.state.innerHTML) {
+            this.suggestStickers();
         }
     }
 
@@ -218,18 +188,7 @@ class InputBoxControl extends Component {
     setInputFocus = () => {
         setTimeout(() => {
             if (this.newMessageRef.current) {
-                const element = this.newMessageRef.current;
-
-                if (element.childNodes.length > 0) {
-                    const range = document.createRange();
-                    range.setStart(element.childNodes[0], element.childNodes[0].length);
-                    range.collapse(true);
-
-                    const selection = window.getSelection();
-                    selection.removeAllRanges();
-                    selection.addRange(range);
-                }
-                element.focus();
+                this.newMessageRef.current.focus();
             }
         }, 100);
     };
@@ -289,11 +248,9 @@ class InputBoxControl extends Component {
     handleSubmit = () => {
         let text = this.getInputText();
 
-        this.newMessageRef.current.innerText = null;
-        this.newMessageRef.current.textContent = null;
-        this.innerHTML = null;
+        if (!text.trim()) return;
 
-        if (!text) return;
+        this.setState({ innerHTML: '' });
 
         const content = {
             '@type': 'inputMessageText',
@@ -367,17 +324,10 @@ class InputBoxControl extends Component {
     };
 
     getInputText() {
-        let innerText = this.newMessageRef.current.innerText;
-        let innerHTML = this.newMessageRef.current.innerHTML;
-
-        if (innerText && innerText === '\n' && innerHTML && (innerHTML === '<br>' || innerHTML === '<div><br></div>')) {
-            this.newMessageRef.current.innerHTML = '';
-        }
-
-        return innerText;
+        return this.newMessageRef.current ? this.newMessageRef.current.innerText : '';
     }
 
-    handleKeyUp = () => {
+    handleKeyUp = e => {
         const { chatId } = this.state;
 
         if (isMeChat(chatId)) return;
@@ -385,12 +335,7 @@ class InputBoxControl extends Component {
         const chat = ChatStore.get(chatId);
         if (!chat) return;
 
-        const innerText = this.newMessageRef.current.innerText;
-        const innerHTML = this.newMessageRef.current.innerHTML;
-
-        if (innerText && innerText === '\n' && innerHTML && (innerHTML === '<br>' || innerHTML === '<div><br></div>')) {
-            this.newMessageRef.current.innerHTML = '';
-        }
+        const innerText = this.getInputText();
 
         if (!innerText) return;
 
@@ -400,13 +345,19 @@ class InputBoxControl extends Component {
     };
 
     handleKeyDown = e => {
-        const innerText = this.newMessageRef.current.innerText;
-        const innerHTML = this.newMessageRef.current.innerHTML;
-        this.innerHTML = innerHTML;
-
-        if (e.key === 'Enter' && !e.shiftKey) {
+        if (e.key === 'Enter') {
             e.preventDefault();
-            this.handleSubmit();
+            if (e.shiftKey || e.metaKey || e.altKey || e.ctrlKey) {
+                document.execCommand('insertText', false, '\n');
+            } else {
+                this.handleSubmit();
+            }
+        } else if (e.key === 'b' && (e.ctrlKey || e.metaKey)) {
+            document.execCommand('bold', false);
+            e.preventDefault();
+        } else if (e.key === 'i' && (e.ctrlKey || e.metaKey)) {
+            document.execCommand('italic', false);
+            e.preventDefault();
         }
     };
 
@@ -460,15 +411,6 @@ class InputBoxControl extends Component {
 
             this.files = files;
             this.setState({ openPasteDialog: true });
-            return;
-        }
-
-        const plainText = event.clipboardData.getData('text/plain');
-        if (plainText) {
-            event.preventDefault();
-            document.execCommand('insertHTML', false, plainText);
-            this.innerHTML = plainText;
-            return;
         }
     };
 
@@ -546,13 +488,15 @@ class InputBoxControl extends Component {
 
     handleEmojiSelect = emoji => {
         if (!emoji) return;
-
-        this.newMessageRef.current.innerText += emoji.native;
-        this.handleInput();
+        document.execCommand('insertText', false, emoji.native);
     };
 
-    handleInput = async event => {
-        const innerText = this.newMessageRef.current.innerText;
+    handleChange = e => {
+        this.setState({ innerHTML: e.target.value });
+    };
+
+    suggestStickers = async event => {
+        const innerText = this.getInputText().trimRight();
         if (!innerText || innerText.length > 11) {
             const { hint } = StickerStore;
             if (hint) {
@@ -618,8 +562,6 @@ class InputBoxControl extends Component {
         const { classes, t } = this.props;
         const { chatId, replyToMessageId, openPasteDialog } = this.state;
 
-        const content = this.innerHTML !== null ? this.innerHTML : null;
-
         return (
             <>
                 <div className={classNames(classes.borderColor, 'inputbox')}>
@@ -650,19 +592,16 @@ class InputBoxControl extends Component {
                             />
                         </div>
                         <div className='inputbox-middle-column'>
-                            <div
+                            <ContentEditable
                                 id='inputbox-message'
-                                ref={this.newMessageRef}
-                                key={new Date()}
+                                innerRef={this.newMessageRef}
                                 placeholder={t('Message')}
-                                contentEditable
-                                suppressContentEditableWarning
+                                html={this.state.innerHTML}
                                 onKeyDown={this.handleKeyDown}
                                 onKeyUp={this.handleKeyUp}
                                 onPaste={this.handlePaste}
-                                onInput={this.handleInput}>
-                                {content}
-                            </div>
+                                onChange={this.handleChange}
+                            />
                         </div>
                         <div className='inputbox-right-column'>
                             <React.Suspense

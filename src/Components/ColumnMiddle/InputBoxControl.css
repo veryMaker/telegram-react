@@ -57,6 +57,10 @@
     opacity: 0.75;
 }
 
+#inputbox-message b {
+    font-weight: bold;
+}
+
 #inputbox-message:focus {
     border: 0;
     outline: none;
