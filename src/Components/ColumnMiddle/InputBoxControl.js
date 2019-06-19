@@ -9,9 +9,11 @@ import React, { Component } from 'react';
 import classNames from 'classnames';
 import { compose } from 'recompose';
 import emojiRegex from 'emoji-regex';
+import Recorder from 'opus-recorder';
 import { withTranslation } from 'react-i18next';
 import withStyles from '@material-ui/core/styles/withStyles';
 import SendIcon from '@material-ui/icons/Send';
+import KeyboardVoiceIcon from '@material-ui/icons/KeyboardVoice';
 import Button from '@material-ui/core/Button';
 import Dialog from '@material-ui/core/Dialog';
 import DialogActions from '@material-ui/core/DialogActions';
@@ -21,6 +23,7 @@ import DialogTitle from '@material-ui/core/DialogTitle';
 import InsertEmoticonIcon from '@material-ui/icons/InsertEmoticon';
 import AttachButton from './../ColumnMiddle/AttachButton';
 import CreatePollDialog from '../Dialog/CreatePollDialog';
+import RecordingTimer from './../ColumnMiddle/RecordingTimer';
 import IconButton from '@material-ui/core/IconButton';
 import InputBoxHeader from './InputBoxHeader';
 import OutputTypingManager from '../../Utils/OutputTypingManager';
@@ -56,14 +59,17 @@ class InputBoxControl extends Component {
         this.attachDocumentRef = React.createRef();
         this.attachPhotoRef = React.createRef();
         this.newMessageRef = React.createRef();
+        this.recordButtonRef = React.createRef();
 
         const chatId = ApplicationStore.getChatId();
-
+        this.recorder = null;
+        this.recordNeedSend = false;
         this.state = {
             chatId: chatId,
             replyToMessageId: getChatDraftReplyToMessageId(chatId),
             openPasteDialog: false,
-            innerHTML: ''
+            innerHTML: '',
+            recordingStartDate: null
         };
     }
 
@@ -73,6 +79,7 @@ class InputBoxControl extends Component {
         ApplicationStore.on('clientUpdateChatId', this.onClientUpdateChatId);
         MessageStore.on('clientUpdateReply', this.onClientUpdateReply);
         StickerStore.on('clientUpdateStickerSend', this.onClientUpdateStickerSend);
+        window.addEventListener('mouseup', this.handleRecordMouseUp);
 
         this.setInputFocus();
         this.setDraft();
@@ -83,9 +90,16 @@ class InputBoxControl extends Component {
         const newChatDraftMessage = this.getNewChatDraftMessage(this.state.chatId, this.state.replyToMessageId);
         this.setChatDraftMessage(newChatDraftMessage);
 
+        if (this.recorder) {
+            this.recorder.ondataavailable = null;
+            this.recorder.stop();
+            this.recorder = null;
+        }
+
         ApplicationStore.removeListener('clientUpdateChatId', this.onClientUpdateChatId);
         MessageStore.removeListener('clientUpdateReply', this.onClientUpdateReply);
         StickerStore.removeListener('clientUpdateStickerSend', this.onClientUpdateStickerSend);
+        window.removeEventListener('mouseup', this.handleRecordMouseUp);
     }
 
     onClientUpdateStickerSend = update => {
@@ -297,6 +311,17 @@ class InputBoxControl extends Component {
         this.attachDocumentRef.current.click();
     };
 
+    handleAttachDocumentComplete = () => {
+        let files = this.attachDocumentRef.current.files;
+        if (files.length === 0) return;
+
+        Array.from(files).forEach(file => {
+            this.handleSendDocument(file);
+        });
+
+        this.attachDocumentRef.current.value = '';
+    };
+
     handleAttachLocation = () => {
         navigator.geolocation.getCurrentPosition(position => {
             const content = {
@@ -312,15 +337,48 @@ class InputBoxControl extends Component {
         });
     };
 
-    handleAttachDocumentComplete = () => {
-        let files = this.attachDocumentRef.current.files;
-        if (files.length === 0) return;
+    isRecording() {
+        return this.state.recordingStartDate !== null;
+    }
 
-        Array.from(files).forEach(file => {
-            this.handleSendDocument(file);
-        });
+    isRecordingSupported() {
+        return Recorder.isRecordingSupported();
+    }
 
-        this.attachDocumentRef.current.value = '';
+    handleRecordMouseDown = () => {
+        if (!this.recorder) {
+            this.recorder = new Recorder({
+                monitorGain: 0,
+                numberOfChannels: 1,
+                bitRate: 35300,
+                encoderSampleRate: 48000
+            });
+            this.recorder.ondataavailable = this.handleRecordDataAvailable;
+        }
+
+        navigator.mediaDevices
+            .getUserMedia({ audio: true })
+            .then(stream => {
+                this.recorder.start(stream);
+                this.setState({ recordingStartDate: new Date() });
+            })
+            .catch(err => console.log('Can not get audio stream', err));
+    };
+
+    handleRecordDataAvailable = typedArray => {
+        if (this.recordNeedSend) {
+            const blob = new Blob([typedArray], { type: 'audio/ogg' });
+            const fileName = new Date().toISOString() + '.ogg';
+            this.handleSendDocument(blob, fileName);
+        }
+    };
+
+    handleRecordMouseUp = e => {
+        if (this.recorder && this.isRecording()) {
+            this.setState({ recordingStartDate: null });
+            this.recordNeedSend = this.recordButtonRef.current && this.recordButtonRef.current.contains(e.target);
+            this.recorder.stop();
+        }
     };
 
     getInputText() {
@@ -385,12 +443,12 @@ class InputBoxControl extends Component {
         this.onSendInternal(poll, true, () => {});
     };
 
-    handleSendDocument = file => {
+    handleSendDocument = (file, fileName) => {
         if (!file) return;
 
         const content = {
             '@type': 'inputMessageDocument',
-            document: { '@type': 'inputFileBlob', name: file.name, data: file }
+            document: { '@type': 'inputFileBlob', name: fileName || file.name, data: file }
         };
 
         this.onSendInternal(content, true, result => FileStore.uploadFile(result.content.document.document.id, result));
@@ -567,58 +625,77 @@ class InputBoxControl extends Component {
                 <div className={classNames(classes.borderColor, 'inputbox')}>
                     <InputBoxHeader chatId={chatId} messageId={replyToMessageId} />
                     <div className='inputbox-wrapper'>
-                        <div className='inputbox-left-column'>
-                            <input
-                                ref={this.attachDocumentRef}
-                                className='inputbox-attach-button'
-                                type='file'
-                                multiple='multiple'
-                                onChange={this.handleAttachDocumentComplete}
-                            />
-                            <input
-                                ref={this.attachPhotoRef}
-                                className='inputbox-attach-button'
-                                type='file'
-                                multiple='multiple'
-                                accept='image/*'
-                                onChange={this.handleAttachPhotoComplete}
-                            />
-                            <AttachButton
-                                chatId={chatId}
-                                onAttachPhoto={this.handleAttachPhoto}
-                                onAttachDocument={this.handleAttachDocument}
-                                onAttachLocation={this.handleAttachLocation}
-                                onAttachPoll={this.handleAttachPoll}
-                            />
-                        </div>
-                        <div className='inputbox-middle-column'>
-                            <ContentEditable
-                                id='inputbox-message'
-                                innerRef={this.newMessageRef}
-                                placeholder={t('Message')}
-                                html={this.state.innerHTML}
-                                onKeyDown={this.handleKeyDown}
-                                onKeyUp={this.handleKeyUp}
-                                onPaste={this.handlePaste}
-                                onChange={this.handleChange}
-                            />
-                        </div>
-                        <div className='inputbox-right-column'>
-                            <React.Suspense
-                                fallback={
-                                    <IconButton className={classes.iconButton} aria-label='Emoticon'>
-                                        <InsertEmoticonIcon />
-                                    </IconButton>
-                                }>
-                                <EmojiPickerButton onSelect={this.handleEmojiSelect} />
-                            </React.Suspense>
-
-                            {/*<IconButton>*/}
-                            {/*<KeyboardVoiceIcon />*/}
-                            {/*</IconButton>*/}
-                            <IconButton className={classes.iconButton} aria-label='Send' onClick={this.handleSubmit}>
-                                <SendIcon />
-                            </IconButton>
+                        {this.isRecording() ? (
+                            <div className='inputbox-recording-column'>
+                                <RecordingTimer startDate={this.state.recordingStartDate} />
+                            </div>
+                        ) : (
+                            <>
+                                <div className='inputbox-left-column'>
+                                    <input
+                                        ref={this.attachDocumentRef}
+                                        className='inputbox-attach-button'
+                                        type='file'
+                                        multiple='multiple'
+                                        onChange={this.handleAttachDocumentComplete}
+                                    />
+                                    <input
+                                        ref={this.attachPhotoRef}
+                                        className='inputbox-attach-button'
+                                        type='file'
+                                        multiple='multiple'
+                                        accept='image/*'
+                                        onChange={this.handleAttachPhotoComplete}
+                                    />
+                                    <AttachButton
+                                        chatId={chatId}
+                                        onAttachPhoto={this.handleAttachPhoto}
+                                        onAttachDocument={this.handleAttachDocument}
+                                        onAttachLocation={this.handleAttachLocation}
+                                        onAttachPoll={this.handleAttachPoll}
+                                    />
+                                </div>
+                                <div className='inputbox-middle-column'>
+                                    <ContentEditable
+                                        id='inputbox-message'
+                                        innerRef={this.newMessageRef}
+                                        placeholder={t('Message')}
+                                        html={this.state.innerHTML}
+                                        onKeyDown={this.handleKeyDown}
+                                        onKeyUp={this.handleKeyUp}
+                                        onPaste={this.handlePaste}
+                                        onChange={this.handleChange}
+                                    />
+                                </div>
+                                <div className='inputbox-btn-column'>
+                                    <React.Suspense
+                                        fallback={
+                                            <IconButton className={classes.iconButton} aria-label='Emoticon'>
+                                                <InsertEmoticonIcon />
+                                            </IconButton>
+                                        }>
+                                        <EmojiPickerButton onSelect={this.handleEmojiSelect} />
+                                    </React.Suspense>
+                                </div>
+                            </>
+                        )}
+                        <div className='inputbox-btn-column'>
+                            {this.state.innerHTML.length === 0 && this.isRecordingSupported() ? (
+                                <IconButton
+                                    className={classes.iconButton}
+                                    aria-label='Mic'
+                                    buttonRef={this.recordButtonRef}
+                                    onMouseDown={this.handleRecordMouseDown}>
+                                    <KeyboardVoiceIcon />
+                                </IconButton>
+                            ) : (
+                                <IconButton
+                                    className={classes.iconButton}
+                                    aria-label='Send'
+                                    onClick={this.handleSubmit}>
+                                    <SendIcon />
+                                </IconButton>
+                            )}
                         </div>
                     </div>
                 </div>

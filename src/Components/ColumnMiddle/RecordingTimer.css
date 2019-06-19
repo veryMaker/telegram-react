@@ -1,0 +1,27 @@
+.recording-timer-label {
+}
+
+.recording-timer-circle {
+    display: inline-block;
+    background-color: red;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+
+    opacity: 1;
+    animation: recording-timer-blink 0.5s infinite alternate;
+    -webkit-animation: recording-timer-blink 0.5s infinite alternate;
+}
+
+@keyframes recording-timer-blink {
+    to {
+        opacity: 0;
+    }
+}
+
+@-webkit-keyframes recording-timer-blink {
+    to {
+        opacity: 0;
+    }
+}

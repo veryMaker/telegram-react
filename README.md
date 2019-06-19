@@ -19,6 +19,7 @@ All TDLib files will be installed into node_modules/tdweb/dist/ folder. Manually
 
 ```lang=bash
 cp node_modules/tdweb/dist/* public/
+cp node_modules/opus-recorder/dist/*Worker* public/
 ```
 
 Run the app in development mode with:

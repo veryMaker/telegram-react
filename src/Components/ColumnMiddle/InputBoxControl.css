@@ -57,14 +57,14 @@
     opacity: 0.75;
 }
 
-#inputbox-message b {
-    font-weight: bold;
-}
-
 #inputbox-message:focus {
     border: 0;
     outline: none;
     box-shadow: 0 0 0 0;
+}
+
+#inputbox-message b {
+    font-weight: bold;
 }
 
 .inputbox-attach-button {
@@ -80,9 +80,17 @@
     flex-grow: 1;
     flex-shrink: 1;
     overflow: hidden;
+    margin-right: 20px;
 }
 
-.inputbox-right-column {
-    margin-left: 20px;
-    min-width: 96px;
+.inputbox-btn-column {
+    width: 48px;
+}
+
+.inputbox-recording-column {
+    display: flex;
+    flex-grow: 1;
+    flex-shrink: 1;
+    align-items: center;
+    padding-left: 4px;
 }
