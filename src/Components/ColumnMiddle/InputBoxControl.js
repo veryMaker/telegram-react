@@ -10,10 +10,13 @@ import classNames from 'classnames';
 import { compose } from 'recompose';
 import emojiRegex from 'emoji-regex';
 import Recorder from 'opus-recorder';
+import RecordRTC from 'recordrtc';
+import { getTracks } from 'recordrtc';
 import { withTranslation } from 'react-i18next';
 import withStyles from '@material-ui/core/styles/withStyles';
 import SendIcon from '@material-ui/icons/Send';
 import KeyboardVoiceIcon from '@material-ui/icons/KeyboardVoice';
+import VideocamIcon from '@material-ui/icons/Videocam';
 import Button from '@material-ui/core/Button';
 import Dialog from '@material-ui/core/Dialog';
 import DialogActions from '@material-ui/core/DialogActions';
@@ -60,16 +63,26 @@ class InputBoxControl extends Component {
         this.attachPhotoRef = React.createRef();
         this.newMessageRef = React.createRef();
         this.recordButtonRef = React.createRef();
+        this.canvasRef = React.createRef();
 
         const chatId = ApplicationStore.getChatId();
-        this.recorder = null;
-        this.recordNeedSend = false;
+
+        this.audioRecorder = null;
+        this.videoRecorder = null;
+        this.stream = null;
+        this.video = null;
+        this.canvasContext = null;
+        this.canvasStream = null;
+        this.needSendRecord = false;
+        this.startRecordTimer = 0;
+
         this.state = {
             chatId: chatId,
             replyToMessageId: getChatDraftReplyToMessageId(chatId),
             openPasteDialog: false,
             innerHTML: '',
-            recordingStartDate: null
+            recordStartDate: null,
+            isAudioRecord: true
         };
     }
 
@@ -90,10 +103,16 @@ class InputBoxControl extends Component {
         const newChatDraftMessage = this.getNewChatDraftMessage(this.state.chatId, this.state.replyToMessageId);
         this.setChatDraftMessage(newChatDraftMessage);
 
-        if (this.recorder) {
-            this.recorder.ondataavailable = null;
-            this.recorder.stop();
-            this.recorder = null;
+        clearTimeout(this.startRecordTimer);
+        if (this.audioRecorder) {
+            this.audioRecorder.ondataavailable = null;
+            this.audioRecorder.stop();
+            this.audioRecorder = null;
+        }
+        this.stopRecordVideo(false);
+        if (this.stream) {
+            this.stream.stop();
+            this.stream = null;
         }
 
         ApplicationStore.removeListener('clientUpdateChatId', this.onClientUpdateChatId);
@@ -338,7 +357,7 @@ class InputBoxControl extends Component {
     };
 
     isRecording() {
-        return this.state.recordingStartDate !== null;
+        return this.state.recordStartDate !== null;
     }
 
     isRecordingSupported() {
@@ -346,38 +365,157 @@ class InputBoxControl extends Component {
     }
 
     handleRecordMouseDown = () => {
-        if (!this.recorder) {
-            this.recorder = new Recorder({
+        this.startRecordTimer = setTimeout(this.startRecord, 300);
+    };
+
+    handleRecordMouseUp = e => {
+        const isRecordButton = this.recordButtonRef.current && this.recordButtonRef.current.contains(e.target);
+
+        if (this.startRecordTimer) {
+            if (isRecordButton) {
+                clearTimeout(this.startRecordTimer);
+                this.startRecordTimer = 0;
+                this.setState(state => ({ isAudioRecord: !state.isAudioRecord }));
+            }
+        } else {
+            this.needSendRecord = isRecordButton;
+            if (this.state.isAudioRecord) {
+                this.stopRecordAudio();
+            } else {
+                this.stopRecordVideo(this.needSendRecord);
+            }
+        }
+    };
+
+    startRecord = () => {
+        this.startRecordTimer = 0;
+        if (this.state.isAudioRecord) {
+            this.startRecordAudio();
+        } else {
+            this.startRecordVideo();
+        }
+    };
+
+    startRecordVideo = () => {
+        if (!this.videoRecorder) {
+            navigator.mediaDevices
+                .getUserMedia({
+                    video: true,
+                    audio: true
+                })
+                .then(stream => {
+                    this.stream = stream;
+
+                    this.video = document.createElement('video');
+                    this.video.volume = 0;
+                    this.video.autoplay = true;
+                    this.video.playsinline = true;
+                    this.video.srcObject = stream;
+
+                    const canvas = this.canvasRef.current;
+                    this.canvasContext = canvas.getContext('2d');
+                    this.canvasContext.fillStyle = '#ffffff';
+                    this.canvasContext.fillRect(0, 0, 240, 240);
+                    this.canvasContext.beginPath();
+                    this.canvasContext.ellipse(120, 120, 120, 120, 0, 0, Math.PI * 2);
+                    this.canvasContext.clip();
+                    this.canvasStream = canvas.captureStream();
+
+                    const audioPlusCanvasStream = new MediaStream();
+
+                    getTracks(this.canvasStream, 'video').forEach(videoTrack => {
+                        audioPlusCanvasStream.addTrack(videoTrack);
+                    });
+
+                    getTracks(stream, 'audio').forEach(audioTrack => {
+                        audioPlusCanvasStream.addTrack(audioTrack);
+                    });
+
+                    this.videoRecorder = RecordRTC(audioPlusCanvasStream, {
+                        type: 'video',
+                        mimeType: 'video/mp4'
+                    });
+                    this.videoRecorder.startRecording();
+                    this.setState({ recordStartDate: new Date() });
+
+                    requestAnimationFrame(this.drawVideoFrame);
+                })
+                .catch(err => console.log('Can not get video stream', err));
+        }
+    };
+
+    drawVideoFrame = () => {
+        if (this.videoRecorder === null) return;
+
+        const w = this.video.videoWidth;
+        const h = this.video.videoHeight;
+        const scaleX = 240 / w;
+        const scaleY = 240 / h;
+        const scale = Math.max(scaleX, scaleY);
+
+        this.canvasContext.drawImage(this.video, -(w * scale - 240) / 2, -(h * scale - 240) / 2, w * scale, h * scale);
+
+        requestAnimationFrame(this.drawVideoFrame);
+    };
+
+    stopRecordVideo = needSendRecord => {
+        if (this.videoRecorder) {
+            this.videoRecorder.stopRecording(() => {
+                const blob = this.videoRecorder.getBlob();
+                const fileName = new Date().toISOString() + '.mp4';
+
+                this.video.src = this.video.srcObject = null;
+                this.stream.stop();
+                this.stream = null;
+                this.canvasStream.stop();
+                this.canvasStream = null;
+                this.canvasContext.clearRect(0, 0, 240, 240);
+                this.videoRecorder.destroy();
+                this.videoRecorder = null;
+                this.setState({ recordStartDate: null });
+
+                if (needSendRecord) {
+                    this.handleSendDocument(blob, fileName);
+                }
+            });
+        }
+    };
+
+    startRecordAudio = () => {
+        if (!this.audioRecorder) {
+            this.audioRecorder = new Recorder({
                 monitorGain: 0,
                 numberOfChannels: 1,
                 bitRate: 35300,
                 encoderSampleRate: 48000
             });
-            this.recorder.ondataavailable = this.handleRecordDataAvailable;
+            this.audioRecorder.ondataavailable = this.handleAudioRecordDataAvailable;
         }
 
         navigator.mediaDevices
             .getUserMedia({ audio: true })
             .then(stream => {
-                this.recorder.start(stream);
-                this.setState({ recordingStartDate: new Date() });
+                this.stream = stream;
+                this.audioRecorder.start(stream);
+                this.setState({ recordStartDate: new Date() });
             })
             .catch(err => console.log('Can not get audio stream', err));
     };
 
-    handleRecordDataAvailable = typedArray => {
-        if (this.recordNeedSend) {
+    handleAudioRecordDataAvailable = typedArray => {
+        this.stream.stop();
+        this.stream = null;
+        if (this.needSendRecord) {
             const blob = new Blob([typedArray], { type: 'audio/ogg' });
             const fileName = new Date().toISOString() + '.ogg';
             this.handleSendDocument(blob, fileName);
         }
     };
 
-    handleRecordMouseUp = e => {
-        if (this.recorder && this.isRecording()) {
-            this.setState({ recordingStartDate: null });
-            this.recordNeedSend = this.recordButtonRef.current && this.recordButtonRef.current.contains(e.target);
-            this.recorder.stop();
+    stopRecordAudio = () => {
+        if (this.audioRecorder && this.isRecording()) {
+            this.setState({ recordStartDate: null });
+            this.audioRecorder.stop();
         }
     };
 
@@ -627,7 +765,7 @@ class InputBoxControl extends Component {
                     <div className='inputbox-wrapper'>
                         {this.isRecording() ? (
                             <div className='inputbox-recording-column'>
-                                <RecordingTimer startDate={this.state.recordingStartDate} />
+                                <RecordingTimer startDate={this.state.recordStartDate} />
                             </div>
                         ) : (
                             <>
@@ -686,7 +824,7 @@ class InputBoxControl extends Component {
                                     aria-label='Mic'
                                     buttonRef={this.recordButtonRef}
                                     onMouseDown={this.handleRecordMouseDown}>
-                                    <KeyboardVoiceIcon />
+                                    {this.state.isAudioRecord ? <KeyboardVoiceIcon /> : <VideocamIcon />}
                                 </IconButton>
                             ) : (
                                 <IconButton
@@ -722,6 +860,14 @@ class InputBoxControl extends Component {
                         </Button>
                     </DialogActions>
                 </Dialog>
+
+                <canvas
+                    ref={this.canvasRef}
+                    style={{ display: this.isRecording() && !this.state.isAudioRecord ? 'block' : 'none' }}
+                    width='240'
+                    height='240'
+                    className='video-note-record'
+                />
             </>
         );
     }
