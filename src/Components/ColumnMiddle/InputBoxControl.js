@@ -60,7 +60,7 @@ class InputBoxControl extends Component {
         super(props);
 
         this.attachDocumentRef = React.createRef();
-        this.attachPhotoRef = React.createRef();
+        this.attachMediaRef = React.createRef();
         this.newMessageRef = React.createRef();
         this.recordButtonRef = React.createRef();
         this.canvasRef = React.createRef();
@@ -305,23 +305,27 @@ class InputBoxControl extends Component {
         });
     };
 
-    handleAttachPhoto = () => {
-        if (!this.attachPhotoRef) return;
+    handleAttachMedia = () => {
+        if (!this.attachMediaRef) return;
 
-        this.attachPhotoRef.current.click();
+        this.attachMediaRef.current.click();
     };
 
-    handleAttachPhotoComplete = () => {
-        let files = this.attachPhotoRef.current.files;
+    handleAttachMediaComplete = () => {
+        let files = this.attachMediaRef.current.files;
         if (files.length === 0) return;
 
         Array.from(files).forEach(file => {
-            readImageSize(file, result => {
-                this.handleSendPhoto(result);
-            });
+            if (file.name.toLowerCase().endsWith('.mp4')) {
+                this.handleSendVideo(file, file.name);
+            } else {
+                readImageSize(file, result => {
+                    this.handleSendPhoto(result);
+                });
+            }
         });
 
-        this.attachPhotoRef.current.value = '';
+        this.attachMediaRef.current.value = '';
     };
 
     handleAttachDocument = () => {
@@ -472,10 +476,11 @@ class InputBoxControl extends Component {
                 this.canvasContext.clearRect(0, 0, 240, 240);
                 this.videoRecorder.destroy();
                 this.videoRecorder = null;
+                this.recordDuration = Math.floor((new Date().getTime() - this.state.recordStartDate.getTime()) / 1000);
                 this.setState({ recordStartDate: null });
 
                 if (needSendRecord) {
-                    this.handleSendDocument(blob, fileName);
+                    this.handleSendVideoNote(blob, fileName, this.recordDuration);
                 }
             });
         }
@@ -508,12 +513,13 @@ class InputBoxControl extends Component {
         if (this.needSendRecord) {
             const blob = new Blob([typedArray], { type: 'audio/ogg' });
             const fileName = new Date().toISOString() + '.ogg';
-            this.handleSendDocument(blob, fileName);
+            this.handleSendVoiceNote(blob, fileName, this.recordDuration);
         }
     };
 
     stopRecordAudio = () => {
         if (this.audioRecorder && this.isRecording()) {
+            this.recordDuration = Math.floor((new Date().getTime() - this.state.recordStartDate.getTime()) / 1000);
             this.setState({ recordStartDate: null });
             this.audioRecorder.stop();
         }
@@ -590,6 +596,109 @@ class InputBoxControl extends Component {
         };
 
         this.onSendInternal(content, true, result => FileStore.uploadFile(result.content.document.document.id, result));
+    };
+
+    handleSendVoiceNote = (file, fileName, duration) => {
+        if (!file) return;
+
+        const content = {
+            '@type': 'inputMessageVoiceNote',
+            voice_note: { '@type': 'inputFileBlob', name: fileName, data: file },
+            duration: duration
+        };
+
+        this.onSendInternal(content, true, result => FileStore.uploadFile(result.content.voice_note.voice.id, result));
+    };
+
+    getVideoInfo = (file, fileName, callback) => {
+        const video = document.createElement('video');
+        video.volume = 0;
+        video.playsinline = true;
+
+        const handleTimeUpdate = () => {
+            video.removeEventListener('timeupdate', handleTimeUpdate);
+
+            const canvas = document.createElement('canvas');
+            const canvasContext = canvas.getContext('2d');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvasContext.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
+
+            canvas.toBlob(
+                blob => {
+                    callback({
+                        thumbnail: {
+                            thumbnail: { '@type': 'inputFileBlob', name: fileName + '.jpg', data: blob },
+                            width: video.videoWidth,
+                            height: video.videoHeight
+                        },
+                        width: video.videoWidth,
+                        height: video.videoHeight,
+                        duration: Math.floor(video.duration)
+                    });
+                },
+                'image/jpeg',
+                0.5
+            );
+        };
+
+        const handleMetaData = () => {
+            video.removeEventListener('loadedmetadata', handleMetaData);
+            video.addEventListener('timeupdate', handleTimeUpdate);
+            video.currentTime = 0;
+        };
+
+        video.addEventListener('loadedmetadata', handleMetaData);
+        video.src = window.URL.createObjectURL(file);
+    };
+
+    handleSendVideo = (file, fileName) => {
+        if (!file) return;
+
+        this.getVideoInfo(file, fileName, info => {
+            const content = {
+                '@type': 'inputMessageVideo',
+                video: { '@type': 'inputFileBlob', name: fileName, data: file },
+                thumbnail: info.thumbnail,
+                duration: info.duration,
+                width: info.width,
+                height: info.height,
+                supports_streaming: false,
+                ttl: 0
+            };
+
+            this.onSendInternal(content, true, result => {
+                const cachedMessage = MessageStore.get(result.chat_id, result.id);
+                if (cachedMessage != null) {
+                    this.handleSendingMessage(cachedMessage, file);
+                }
+
+                FileStore.uploadFile(result.content.video.video.id, result);
+            });
+        });
+    };
+
+    handleSendVideoNote = (file, fileName, duration) => {
+        if (!file) return;
+
+        this.getVideoInfo(file, fileName, info => {
+            const content = {
+                '@type': 'inputMessageVideoNote',
+                video_note: { '@type': 'inputFileBlob', name: fileName, data: file },
+                thumbnail: info.thumbnail,
+                duration: duration,
+                length: info.width
+            };
+
+            this.onSendInternal(content, true, result => {
+                const cachedMessage = MessageStore.get(result.chat_id, result.id);
+                if (cachedMessage != null) {
+                    this.handleSendingMessage(cachedMessage, file);
+                }
+
+                FileStore.uploadFile(result.content.video_note.video.id, result);
+            });
+        });
     };
 
     handlePaste = event => {
@@ -778,16 +887,16 @@ class InputBoxControl extends Component {
                                         onChange={this.handleAttachDocumentComplete}
                                     />
                                     <input
-                                        ref={this.attachPhotoRef}
+                                        ref={this.attachMediaRef}
                                         className='inputbox-attach-button'
                                         type='file'
                                         multiple='multiple'
-                                        accept='image/*'
-                                        onChange={this.handleAttachPhotoComplete}
+                                        accept='image/*, video/mp4'
+                                        onChange={this.handleAttachMediaComplete}
                                     />
                                     <AttachButton
                                         chatId={chatId}
-                                        onAttachPhoto={this.handleAttachPhoto}
+                                        onAttachMedia={this.handleAttachMedia}
                                         onAttachDocument={this.handleAttachDocument}
                                         onAttachLocation={this.handleAttachLocation}
                                         onAttachPoll={this.handleAttachPoll}

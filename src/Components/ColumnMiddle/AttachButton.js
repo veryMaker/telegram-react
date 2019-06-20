@@ -42,13 +42,13 @@ class AttachButton extends React.Component {
         this.setState({ anchorEl: null });
     };
 
-    handleAttachPhoto = () => {
+    handleAttachMedia = () => {
         this.handleMenuClose();
 
-        const { onAttachPhoto } = this.props;
-        if (!onAttachPhoto) return;
+        const { onAttachMedia } = this.props;
+        if (!onAttachMedia) return;
 
-        setTimeout(() => onAttachPhoto(), ANIMATION_DURATION_300MS);
+        setTimeout(() => onAttachMedia(), ANIMATION_DURATION_300MS);
     };
 
     handleAttachDocument = () => {
@@ -107,11 +107,11 @@ class AttachButton extends React.Component {
                         horizontal: 'left'
                     }}
                     onClose={this.handleMenuClose}>
-                    <MenuItem onClick={this.handleAttachPhoto} disabled={!canSendPhotos(chatId)}>
+                    <MenuItem onClick={this.handleAttachMedia} disabled={!canSendPhotos(chatId)}>
                         <ListItemIcon>
                             <PhotoIcon />
                         </ListItemIcon>
-                        <ListItemText primary={t('AttachPhoto')} />
+                        <ListItemText primary={t('AttachPhoto') + ', ' + t('AttachVideo')} />
                     </MenuItem>
                     <MenuItem onClick={this.handleAttachDocument} disabled={!canSendDocuments(chatId)}>
                         <ListItemIcon>
@@ -142,7 +142,7 @@ class AttachButton extends React.Component {
 AttachButton.propTypes = {
     chatId: PropTypes.number.isRequired,
     onAttachDocument: PropTypes.func.isRequired,
-    onAttachPhoto: PropTypes.func.isRequired,
+    onAttachMedia: PropTypes.func.isRequired,
     onAttachPoll: PropTypes.func.isRequired
 };
 
