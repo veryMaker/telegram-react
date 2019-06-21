@@ -37,9 +37,10 @@
     "recompose": "^0.30.0",
     "sw-precache-cra": "^1.0.0-alpha.2",
     "universal-cookie": "^3.1.0",
-    "react-contenteditable": "3.2.6",
-    "opus-recorder": "6.1.1",
-    "recordrtc": "5.5.7"
+    "react-contenteditable": "^3.2.6",
+    "opus-recorder": "^6.1.1",
+    "recordrtc": "^5.5.7",
+    "jsmediatags": "^3.8.1"
   },
   "lint-staged": {
     "src/**/*.{js,jsx,json,css}": [

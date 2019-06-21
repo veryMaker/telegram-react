@@ -111,7 +111,7 @@ class AttachButton extends React.Component {
                         <ListItemIcon>
                             <PhotoIcon />
                         </ListItemIcon>
-                        <ListItemText primary={t('AttachPhoto') + ', ' + t('AttachVideo')} />
+                        <ListItemText primary={t('AttachPhoto') + ', ' + t('AttachVideo') + ', ' + t('AttachMusic')} />
                     </MenuItem>
                     <MenuItem onClick={this.handleAttachDocument} disabled={!canSendDocuments(chatId)}>
                         <ListItemIcon>

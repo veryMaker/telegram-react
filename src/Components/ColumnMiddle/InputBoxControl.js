@@ -12,6 +12,7 @@ import emojiRegex from 'emoji-regex';
 import Recorder from 'opus-recorder';
 import RecordRTC from 'recordrtc';
 import { getTracks } from 'recordrtc';
+import jsmediatags from 'jsmediatags';
 import { withTranslation } from 'react-i18next';
 import withStyles from '@material-ui/core/styles/withStyles';
 import SendIcon from '@material-ui/icons/Send';
@@ -316,7 +317,10 @@ class InputBoxControl extends Component {
         if (files.length === 0) return;
 
         Array.from(files).forEach(file => {
-            if (file.name.toLowerCase().endsWith('.mp4')) {
+            const fileName = file.name.toLowerCase();
+            if (fileName.endsWith('.mp3') || fileName.endsWith('.flac')) {
+                this.handleSendAudio(file);
+            } else if (fileName.endsWith('.mp4')) {
                 this.handleSendVideo(file, file.name);
             } else {
                 readImageSize(file, result => {
@@ -596,6 +600,57 @@ class InputBoxControl extends Component {
         };
 
         this.onSendInternal(content, true, result => FileStore.uploadFile(result.content.document.document.id, result));
+    };
+
+    getAudioInfo = (file, callback) => {
+        const handleMetaData = () => {
+            audio.removeEventListener('loadedmetadata', handleMetaData);
+
+            const handleTag = tag => {
+                const title = tag.tags.title || file.name;
+                const performer = tag.tags.artist || '';
+                const pic = tag.tags.picture
+                    ? {
+                          thumbnail: {
+                              '@type': 'inputFileBlob',
+                              name: file.name + '.jpg',
+                              data: tag.tags.picture.data
+                          },
+                          width: 0,
+                          height: 0
+                      }
+                    : null;
+
+                callback({
+                    '@type': 'inputMessageAudio',
+                    audio: { '@type': 'inputFileBlob', name: file.name, data: file },
+                    album_cover_thumbnail: pic,
+                    duration: Math.floor(audio.duration),
+                    title: title,
+                    performer: performer
+                });
+            };
+
+            jsmediatags.read(file, {
+                onSuccess: handleTag,
+                onError: function(error) {
+                    console.log(':(', error.type, error.info);
+                    handleTag({ tags: {} });
+                }
+            });
+        };
+
+        const audio = new Audio();
+        audio.addEventListener('loadedmetadata', handleMetaData);
+        audio.src = window.URL.createObjectURL(file);
+    };
+
+    handleSendAudio = file => {
+        if (!file) return;
+
+        this.getAudioInfo(file, content => {
+            this.onSendInternal(content, true, result => FileStore.uploadFile(result.content.audio.audio.id, result));
+        });
     };
 
     handleSendVoiceNote = (file, fileName, duration) => {
@@ -891,7 +946,7 @@ class InputBoxControl extends Component {
                                         className='inputbox-attach-button'
                                         type='file'
                                         multiple='multiple'
-                                        accept='image/*, video/mp4'
+                                        accept='image/*, video/mp4, audio/mp3, audio/flac'
                                         onChange={this.handleAttachMediaComplete}
                                     />
                                     <AttachButton
