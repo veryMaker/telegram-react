@@ -389,8 +389,12 @@ class InputBoxControl extends Component {
         return Recorder.isRecordingSupported();
     }
 
-    handleRecordMouseDown = () => {
-        this.startRecordTimer = setTimeout(this.startRecord, 300);
+    handleRecordMouseDown = e => {
+        if (this.state.recordStartDate !== null) {
+            this.stopRecord(true);
+        } else {
+            this.startRecordTimer = setTimeout(this.startRecord, 300);
+        }
     };
 
     handleRecordMouseUp = e => {
@@ -403,12 +407,7 @@ class InputBoxControl extends Component {
                 this.setState(state => ({ isAudioRecord: !state.isAudioRecord }));
             }
         } else {
-            this.needSendRecord = isRecordButton;
-            if (this.state.isAudioRecord) {
-                this.stopRecordAudio();
-            } else {
-                this.stopRecordVideo(this.needSendRecord);
-            }
+            this.stopRecord(isRecordButton);
         }
     };
 
@@ -418,6 +417,15 @@ class InputBoxControl extends Component {
             this.startRecordAudio();
         } else {
             this.startRecordVideo();
+        }
+    };
+
+    stopRecord = needSendRecord => {
+        this.needSendRecord = needSendRecord;
+        if (this.state.isAudioRecord) {
+            this.stopRecordAudio();
+        } else {
+            this.stopRecordVideo(this.needSendRecord);
         }
     };
 
