@@ -66,7 +66,7 @@ class AttachButton extends React.Component {
         const { onAttachLocation } = this.props;
         if (!onAttachLocation) return;
 
-        setTimeout(() => onAttachLocation(), ANIMATION_DURATION_300MS);
+        onAttachLocation();
     };
 
     handleAttachPoll = () => {

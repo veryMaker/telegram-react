@@ -364,18 +364,21 @@ class InputBoxControl extends Component {
     };
 
     handleAttachLocation = () => {
-        navigator.geolocation.getCurrentPosition(position => {
-            const content = {
-                '@type': 'inputMessageLocation',
-                location: {
-                    latitude: position.coords.latitude,
-                    longitude: position.coords.longitude
-                },
-                live_period: 0
-            };
+        navigator.geolocation.getCurrentPosition(
+            position => {
+                const content = {
+                    '@type': 'inputMessageLocation',
+                    location: {
+                        latitude: position.coords.latitude,
+                        longitude: position.coords.longitude
+                    },
+                    live_period: 0
+                };
 
-            this.onSendInternal(content, true, () => {});
-        });
+                this.onSendInternal(content, true, () => {});
+            },
+            error => console.error(error)
+        );
     };
 
     isRecording() {
