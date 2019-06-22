@@ -1014,7 +1014,7 @@ class InputBoxControl extends Component {
                             </>
                         )}
                         <div className='inputbox-btn-column'>
-                            {this.state.innerHTML.length === 0 && this.isRecordingSupported() ? (
+                            {this.getInputText().trim().length === 0 && this.isRecordingSupported() ? (
                                 <IconButton
                                     className={classes.iconButton}
                                     aria-label='Mic'
