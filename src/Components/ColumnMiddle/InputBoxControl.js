@@ -13,6 +13,7 @@ import Recorder from 'opus-recorder';
 import RecordRTC from 'recordrtc';
 import { getTracks } from 'recordrtc';
 import jsmediatags from 'jsmediatags';
+import sanitizeHtml from 'sanitize-html';
 import { withTranslation } from 'react-i18next';
 import withStyles from '@material-ui/core/styles/withStyles';
 import SendIcon from '@material-ui/icons/Send';
@@ -34,6 +35,7 @@ import OutputTypingManager from '../../Utils/OutputTypingManager';
 import { getSize, readImageSize } from '../../Utils/Common';
 import { getChatDraft, getChatDraftReplyToMessageId, isMeChat, isPrivateChat } from '../../Utils/Chat';
 import { borderStyle } from '../Theme';
+import MessageFormat from '../../Utils/MessageFormat';
 import { PHOTO_SIZE } from '../../Constants';
 import MessageStore from '../../Stores/MessageStore';
 import ChatStore from '../../Stores/ChatStore';
@@ -67,6 +69,18 @@ class InputBoxControl extends Component {
         this.canvasRef = React.createRef();
 
         const chatId = ApplicationStore.getChatId();
+        this.sanitizeConfig = {
+            allowedTags: ['b', 'i', 'a', 'br', 'div'],
+            allowedAttributes: {
+                a: ['href']
+            },
+            transformTags: {
+                em: 'i',
+                strong: 'b',
+                p: 'div',
+                li: 'div'
+            }
+        };
 
         this.audioRecorder = null;
         this.videoRecorder = null;
@@ -280,9 +294,9 @@ class InputBoxControl extends Component {
     };
 
     handleSubmit = () => {
-        let text = this.getInputText();
+        const formatted = MessageFormat.format(this.newMessageRef.current.innerHTML);
 
-        if (!text.trim()) return;
+        if (!formatted.text.trim()) return;
 
         this.setState({ innerHTML: '' });
 
@@ -290,8 +304,8 @@ class InputBoxControl extends Component {
             '@type': 'inputMessageText',
             text: {
                 '@type': 'formattedText',
-                text: text,
-                entities: null
+                text: formatted.text,
+                entities: formatted.entities
             },
             disable_web_page_preview: false,
             clear_draft: true
@@ -564,6 +578,12 @@ class InputBoxControl extends Component {
         } else if (e.key === 'i' && (e.ctrlKey || e.metaKey)) {
             document.execCommand('italic', false);
             e.preventDefault();
+        } else if (e.key === 'u' && (e.ctrlKey || e.metaKey)) {
+            const url = prompt('Please enter URL', 'https://');
+            if (url != null) {
+                document.execCommand('createLink', false, url);
+            }
+            e.preventDefault();
         }
     };
 
@@ -771,6 +791,15 @@ class InputBoxControl extends Component {
 
             this.files = files;
             this.setState({ openPasteDialog: true });
+            return;
+        }
+
+        const htmlData = event.clipboardData.getData('text/html');
+        if (htmlData) {
+            event.preventDefault();
+            const s = sanitizeHtml(htmlData, this.sanitizeConfig);
+
+            document.execCommand('insertHTML', false, s);
         }
     };
 

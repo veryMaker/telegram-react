@@ -40,7 +40,8 @@
     "react-contenteditable": "^3.2.6",
     "opus-recorder": "^6.1.1",
     "recordrtc": "^5.5.7",
-    "jsmediatags": "^3.8.1"
+    "jsmediatags": "^3.8.1",
+    "sanitize-html": "^1.20.1"
   },
   "lint-staged": {
     "src/**/*.{js,jsx,json,css}": [
