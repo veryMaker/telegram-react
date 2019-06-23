@@ -95,6 +95,13 @@
     padding-left: 4px;
 }
 
+.inputbox-recording-column-text {
+    flex-grow: 1;
+    flex-shrink: 1;
+    align-items: center;
+    text-align: center;
+}
+
 .video-note-record {
     position: absolute;
     width: 240px;

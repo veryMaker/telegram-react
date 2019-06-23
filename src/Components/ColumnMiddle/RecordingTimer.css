@@ -1,4 +1,5 @@
-.recording-timer-label {
+.recording-timer-container {
+    width: 80px;
 }
 
 .recording-timer-circle {

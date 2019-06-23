@@ -970,6 +970,7 @@ class InputBoxControl extends Component {
                         {this.isRecording() ? (
                             <div className='inputbox-recording-column'>
                                 <RecordingTimer startDate={this.state.recordStartDate} />
+                                <div className='inputbox-recording-column-text'>Release outside to cancel</div>
                             </div>
                         ) : (
                             <>
