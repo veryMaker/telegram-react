@@ -38,3 +38,11 @@
 .messages-list-items:last-child {
     margin-bottom: 24px;
 }
+
+.scroll-bottom-btn {
+    position: absolute;
+    width: 48px;
+    height: 48px;
+    right: 16px;
+    bottom: 16px;
+}

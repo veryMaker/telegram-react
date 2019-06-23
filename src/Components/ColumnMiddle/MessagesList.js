@@ -29,6 +29,8 @@ import ApplicationStore from '../../Stores/ApplicationStore';
 import PlayerStore from '../../Stores/PlayerStore';
 import TdLibController from '../../Controllers/TdLibController';
 import './MessagesList.css';
+import ArrowDownward from '@material-ui/icons/ArrowDownward';
+import IconButton from '@material-ui/core/IconButton';
 
 const ScrollBehaviorEnum = Object.freeze({
     NONE: 'NONE',
@@ -64,6 +66,7 @@ class MessagesList extends React.Component {
 
         this.listRef = React.createRef();
         this.itemsRef = React.createRef();
+        this.scrollBottomBtn = React.createRef();
 
         this.itemsMap = new Map();
 
@@ -765,11 +768,22 @@ class MessagesList extends React.Component {
         );
     }
 
+    getScrollBtnDisplay = () => {
+        const list = this.listRef.current;
+        if (!list) return 'none';
+        if (list.scrollTop + list.offsetHeight > list.scrollHeight - 200) return 'none';
+        return 'block';
+    };
+
     handleScroll = () => {
         this.updateItemsInView();
 
         const list = this.listRef.current;
         //console.log(`SCROLL HANDLESCROLL list.scrollTop=${list.scrollTop} list.offsetHeight=${list.offsetHeight} list.scrollHeight=${list.scrollHeight} chatId=${this.props.chatId}`);
+
+        if (this.scrollBottomBtn.current) {
+            this.scrollBottomBtn.current.style.display = this.getScrollBtnDisplay();
+        }
 
         if (this.suppressHandleScroll) {
             console.log('SCROLL HANDLESCROLL suppressHandleScroll');
@@ -1050,6 +1064,14 @@ class MessagesList extends React.Component {
                         {this.messages}
                     </div>
                 </div>
+                <IconButton
+                    buttonRef={this.scrollBottomBtn}
+                    className='scroll-bottom-btn'
+                    aria-label='Scroll'
+                    style={{ display: this.getScrollBtnDisplay() }}
+                    onClick={this.scrollToBottom}>
+                    <ArrowDownward />
+                </IconButton>
                 <PinnedMessage chatId={chatId} />
                 <FilesDropTarget />
                 <StickersHint />
