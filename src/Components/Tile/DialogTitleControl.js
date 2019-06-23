@@ -8,11 +8,16 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { withTranslation } from 'react-i18next';
-import { getChatTitle, isChatVerified } from '../../Utils/Chat';
+import { getChatTitle, isChatVerified, isChatMuted } from '../../Utils/Chat';
 import ChatStore from '../../Stores/ChatStore';
 import './DialogTitleControl.css';
+import NotificationsControl from '../ColumnMiddle/NotificationsControl';
 
-class DialogTitleControl extends React.Component {
+class DialogTitleControl extends NotificationsControl {
+    constructor(props) {
+        super(props);
+    }
+
     shouldComponentUpdate(nextProps, nextState) {
         if (nextProps.chatId !== this.props.chatId) {
             return true;
@@ -22,15 +27,21 @@ class DialogTitleControl extends React.Component {
             return true;
         }
 
+        if (nextState.isMuted !== this.state.isMuted) {
+            return true;
+        }
+
         return false;
     }
 
     componentDidMount() {
+        super.componentDidMount();
         ChatStore.on('clientUpdateFastUpdatingComplete', this.onFastUpdatingComplete);
         ChatStore.on('updateChatTitle', this.onUpdateChatTitle);
     }
 
     componentWillUnmount() {
+        super.componentWillUnmount();
         ChatStore.removeListener('clientUpdateFastUpdatingComplete', this.onFastUpdatingComplete);
         ChatStore.removeListener('updateChatTitle', this.onUpdateChatTitle);
     }
@@ -57,6 +68,7 @@ class DialogTitleControl extends React.Component {
             <div className='dialog-title'>
                 {title}
                 {isVerified ? <div className='verified-badge' /> : null}
+                {this.state.isMuted ? <div className='muted-badge' /> : null}
             </div>
         );
     }

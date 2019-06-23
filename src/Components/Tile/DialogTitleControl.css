@@ -25,3 +25,13 @@
     background-repeat: no-repeat;
     background-position: -7px -371px;
 }
+
+.muted-badge {
+    display: inline-block;
+    width: 20px;
+    height: 21px;
+    background-image: url(../../Assets/Icons/General_2x.png);
+    background-size: 40px 941px;
+    background-repeat: no-repeat;
+    background-position: -10px -678px;
+}
