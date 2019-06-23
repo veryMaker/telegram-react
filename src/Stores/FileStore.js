@@ -748,9 +748,10 @@ class FileStore extends EventEmitter {
     };
 
     setLocationFile = (locationId, file) => {
-        this.locationItems.set(locationId, file.id);
-
-        this.set(file);
+        if (!this.locationItems.has(locationId)) {
+            this.locationItems.set(locationId, file.id);
+            this.set(file);
+        }
     };
 
     getBlobUrl = blob => {
