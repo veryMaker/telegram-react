@@ -90,6 +90,8 @@ class InputBoxControl extends Component {
         this.canvasStream = null;
         this.needSendRecord = false;
         this.startRecordTimer = 0;
+        this.isVideoRecording = false;
+        this.isAudioRecording = false;
 
         this.state = {
             chatId: chatId,
@@ -121,6 +123,7 @@ class InputBoxControl extends Component {
 
         clearTimeout(this.startRecordTimer);
         if (this.audioRecorder) {
+            this.audioRecorder.onstart = null;
             this.audioRecorder.ondataavailable = null;
             this.audioRecorder.stop();
             this.audioRecorder = null;
@@ -440,51 +443,60 @@ class InputBoxControl extends Component {
     };
 
     startRecordVideo = () => {
-        if (!this.videoRecorder) {
-            navigator.mediaDevices
-                .getUserMedia({
-                    video: true,
-                    audio: true
-                })
-                .then(stream => {
-                    this.stream = stream;
+        if (this.isVideoRecording) return;
+        this.isVideoRecording = true;
 
-                    this.video = document.createElement('video');
-                    this.video.volume = 0;
-                    this.video.autoplay = true;
-                    this.video.playsinline = true;
-                    this.video.srcObject = stream;
+        navigator.mediaDevices
+            .getUserMedia({
+                video: true,
+                audio: true
+            })
+            .then(stream => {
+                this.stream = stream;
 
-                    const canvas = this.canvasRef.current;
-                    this.canvasContext = canvas.getContext('2d');
-                    this.canvasContext.fillStyle = '#ffffff';
-                    this.canvasContext.fillRect(0, 0, 240, 240);
-                    this.canvasContext.beginPath();
-                    this.canvasContext.ellipse(120, 120, 120, 120, 0, 0, Math.PI * 2);
-                    this.canvasContext.clip();
-                    this.canvasStream = canvas.captureStream();
+                this.video = document.createElement('video');
+                this.video.addEventListener('loadedmetadata', this.onVideoMetaData);
+                this.video.volume = 0;
+                this.video.autoplay = true;
+                this.video.playsinline = true;
+                this.video.srcObject = stream;
+            })
+            .catch(err => {
+                this.isVideoRecording = false;
+                console.log('Can not get video stream', err);
+            });
+    };
 
-                    const audioPlusCanvasStream = new MediaStream();
+    onVideoMetaData = () => {
+        this.video.removeEventListener('loadedmetadata', this.onVideoMetaData);
 
-                    getTracks(this.canvasStream, 'video').forEach(videoTrack => {
-                        audioPlusCanvasStream.addTrack(videoTrack);
-                    });
+        const canvas = this.canvasRef.current;
+        this.canvasContext = canvas.getContext('2d');
+        this.canvasContext.fillStyle = '#ffffff';
+        this.canvasContext.fillRect(0, 0, 240, 240);
+        this.canvasContext.beginPath();
+        this.canvasContext.ellipse(120, 120, 120, 120, 0, 0, Math.PI * 2);
+        this.canvasContext.clip();
+        this.canvasStream = canvas.captureStream();
 
-                    getTracks(stream, 'audio').forEach(audioTrack => {
-                        audioPlusCanvasStream.addTrack(audioTrack);
-                    });
+        const audioPlusCanvasStream = new MediaStream();
 
-                    this.videoRecorder = RecordRTC(audioPlusCanvasStream, {
-                        type: 'video',
-                        mimeType: 'video/mp4'
-                    });
-                    this.videoRecorder.startRecording();
-                    this.setState({ recordStartDate: new Date() });
+        getTracks(this.canvasStream, 'video').forEach(videoTrack => {
+            audioPlusCanvasStream.addTrack(videoTrack);
+        });
 
-                    requestAnimationFrame(this.drawVideoFrame);
-                })
-                .catch(err => console.log('Can not get video stream', err));
-        }
+        getTracks(this.stream, 'audio').forEach(audioTrack => {
+            audioPlusCanvasStream.addTrack(audioTrack);
+        });
+
+        this.videoRecorder = RecordRTC(audioPlusCanvasStream, {
+            type: 'video',
+            mimeType: 'video/mp4'
+        });
+        this.videoRecorder.startRecording();
+        this.setState({ recordStartDate: new Date() });
+
+        requestAnimationFrame(this.drawVideoFrame);
     };
 
     drawVideoFrame = () => {
@@ -507,25 +519,48 @@ class InputBoxControl extends Component {
                 const blob = this.videoRecorder.getBlob();
                 const fileName = new Date().toISOString() + '.mp4';
 
-                this.video.src = this.video.srcObject = null;
-                this.stream.stop();
-                this.stream = null;
+                this.destroyVideo();
                 this.canvasStream.stop();
                 this.canvasStream = null;
                 this.canvasContext.clearRect(0, 0, 240, 240);
                 this.videoRecorder.destroy();
                 this.videoRecorder = null;
-                this.recordDuration = Math.floor((new Date().getTime() - this.state.recordStartDate.getTime()) / 1000);
-                this.setState({ recordStartDate: null });
 
-                if (needSendRecord) {
-                    this.handleSendVideoNote(blob, fileName, this.recordDuration);
+                if (this.state.recordStartDate) {
+                    this.recordDuration = Math.floor(
+                        (new Date().getTime() - this.state.recordStartDate.getTime()) / 1000
+                    );
+                    this.setState({ recordStartDate: null });
+
+                    if (needSendRecord) {
+                        this.handleSendVideoNote(blob, fileName, this.recordDuration);
+                    }
                 }
             });
+        } else {
+            this.destroyVideo();
+        }
+    };
+
+    destroyVideo = () => {
+        this.isVideoRecording = false;
+
+        if (this.video) {
+            this.video.removeEventListener('loadedmetadata', this.onVideoMetaData);
+            this.video.src = this.video.srcObject = null;
+            this.video = null;
+        }
+
+        if (this.stream) {
+            this.stream.stop();
+            this.stream = null;
         }
     };
 
     startRecordAudio = () => {
+        if (this.isAudioRecording) return;
+        this.isAudioRecording = true;
+
         if (!this.audioRecorder) {
             this.audioRecorder = new Recorder({
                 monitorGain: 0,
@@ -533,6 +568,7 @@ class InputBoxControl extends Component {
                 bitRate: 35300,
                 encoderSampleRate: 48000
             });
+            this.audioRecorder.onstart = this.handleAudioRecordStart;
             this.audioRecorder.ondataavailable = this.handleAudioRecordDataAvailable;
         }
 
@@ -541,14 +577,20 @@ class InputBoxControl extends Component {
             .then(stream => {
                 this.stream = stream;
                 this.audioRecorder.start(stream);
-                this.setState({ recordStartDate: new Date() });
             })
-            .catch(err => console.log('Can not get audio stream', err));
+            .catch(err => {
+                this.isAudioRecording = false;
+                console.log('Can not get audio stream', err);
+            });
+    };
+
+    handleAudioRecordStart = () => {
+        this.setState({ recordStartDate: new Date() });
     };
 
     handleAudioRecordDataAvailable = typedArray => {
-        this.stream.stop();
-        this.stream = null;
+        this.destroyAudio();
+
         if (this.needSendRecord) {
             const blob = new Blob([typedArray], { type: 'audio/ogg' });
             const fileName = new Date().toISOString() + '.ogg';
@@ -561,6 +603,17 @@ class InputBoxControl extends Component {
             this.recordDuration = Math.floor((new Date().getTime() - this.state.recordStartDate.getTime()) / 1000);
             this.setState({ recordStartDate: null });
             this.audioRecorder.stop();
+        } else {
+            this.destroyAudio();
+        }
+    };
+
+    destroyAudio = () => {
+        this.isAudioRecording = false;
+
+        if (this.stream) {
+            this.stream.stop();
+            this.stream = null;
         }
     };
 
