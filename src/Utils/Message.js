@@ -95,6 +95,13 @@ function substring(text, start, end) {
     return text.substring(start, end);
 }
 
+function handleBotCommandClick(e) {
+    e.preventDefault();
+    const event = new Event('botCommandClick');
+    event.command = e.currentTarget.innerText;
+    window.dispatchEvent(event);
+}
+
 function stopPropagation(event) {
     event.stopPropagation();
 }
@@ -215,12 +222,8 @@ function getFormattedText(text) {
                 );
                 break;
             case 'textEntityTypeBotCommand':
-                let command = entityText.length > 0 && entityText[0] === '/' ? substring(entityText, 1) : entityText;
                 result.push(
-                    <a
-                        key={text.entities[i].offset}
-                        onClick={stopPropagation}
-                        href={`tg://bot_command?command=${command}&bot=`}>
+                    <a key={text.entities[i].offset} onClick={handleBotCommandClick} href='#'>
                         {entityText}
                     </a>
                 );

@@ -108,6 +108,7 @@ class InputBoxControl extends Component {
         MessageStore.on('clientUpdateReply', this.onClientUpdateReply);
         StickerStore.on('clientUpdateStickerSend', this.onClientUpdateStickerSend);
         window.addEventListener('mouseup', this.handleRecordMouseUp);
+        window.addEventListener('botCommandClick', this.handleBotCommandClick);
 
         this.setInputFocus();
         this.setDraft();
@@ -134,6 +135,7 @@ class InputBoxControl extends Component {
         MessageStore.removeListener('clientUpdateReply', this.onClientUpdateReply);
         StickerStore.removeListener('clientUpdateStickerSend', this.onClientUpdateStickerSend);
         window.removeEventListener('mouseup', this.handleRecordMouseUp);
+        window.removeEventListener('botCommandClick', this.handleBotCommandClick);
     }
 
     onClientUpdateStickerSend = update => {
@@ -294,7 +296,11 @@ class InputBoxControl extends Component {
     };
 
     handleSubmit = () => {
-        const formatted = MessageFormat.format(this.newMessageRef.current.innerHTML);
+        this.sendText(this.newMessageRef.current.innerHTML);
+    };
+
+    sendText = text => {
+        const formatted = MessageFormat.format(text);
 
         if (!formatted.text.trim()) return;
 
@@ -312,6 +318,10 @@ class InputBoxControl extends Component {
         };
 
         this.onSendInternal(content, false, result => {});
+    };
+
+    handleBotCommandClick = e => {
+        this.sendText(e.command);
     };
 
     handleAttachPoll = () => {
