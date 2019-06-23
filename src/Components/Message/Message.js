@@ -18,6 +18,8 @@ import UserTileControl from '../Tile/UserTileControl';
 import ChatTileControl from '../Tile/ChatTileControl';
 import UnreadSeparator from './UnreadSeparator';
 import WebPage from './Media/WebPage';
+import InlineKeyboard from './Media/InlineKeyboard';
+
 import {
     getDate,
     getDateHint,
@@ -354,6 +356,7 @@ class Message extends Component {
                         {media}
                         <div className='message-text'>{text}</div>
                         {webPage && <WebPage chatId={chatId} messageId={messageId} openMedia={this.openMedia} />}
+                        {message.reply_markup && <InlineKeyboard replyMarkup={message.reply_markup} />}
                     </div>
                 </div>
             </div>

@@ -1,0 +1,30 @@
+.inline-keyboard {
+    margin-top: 4px;
+}
+
+.inline-keyboard-row {
+    display: flex;
+    flex-shrink: 1;
+    flex-grow: 1;
+}
+
+.inline-keyboard-btn {
+    cursor: pointer;
+    border: none;
+    box-shadow: none;
+    background-color: #f4f4f4;
+    color: black;
+    display: flex;
+    flex-shrink: 1;
+    flex-grow: 1;
+    justify-content: center;
+    border-radius: 4px;
+    margin-right: 8px;
+    margin-top: 4px;
+    margin-bottom: 4px;
+    font: 12px/32px 'Roboto', sans-serif;
+}
+
+.inline-keyboard-btn:disabled {
+    opacity: 0.5;
+}
