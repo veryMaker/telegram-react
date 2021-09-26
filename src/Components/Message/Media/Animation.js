@@ -9,76 +9,121 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import classNames from 'classnames';
 import { withTranslation } from 'react-i18next';
+import { compose, withRestoreRef, withSaveRef } from '../../../Utils/HOC';
 import FileProgress from '../../Viewer/FileProgress';
-import { getFitSize } from '../../../Utils/Common';
+import { getFitSize, getPhotoSize } from '../../../Utils/Common';
 import { isBlurredThumbnail } from '../../../Utils/Media';
 import { getFileSize, getSrc, isGifMimeType } from '../../../Utils/File';
-import { PHOTO_DISPLAY_SIZE, PHOTO_SIZE } from '../../../Constants';
+import { PHOTO_DISPLAY_SIZE } from '../../../Constants';
+import AnimationStore from '../../../Stores/AnimationStore';
+import AppStore from '../../../Stores/ApplicationStore';
 import FileStore from '../../../Stores/FileStore';
+import InstantViewStore from '../../../Stores/InstantViewStore';
 import MessageStore from '../../../Stores/MessageStore';
-import ApplicationStore from '../../../Stores/ApplicationStore';
 import './Animation.css';
 
 class Animation extends React.Component {
     constructor(props) {
         super(props);
 
+        this.state = { };
         this.videoRef = React.createRef();
 
-        this.focused = window.hasFocus;
+        this.setPlayerParams();
+    }
+
+    setPlayerParams() {
+        this.windowFocused = window.hasFocus;
+
         this.inView = false;
-        this.openMediaViewer = Boolean(ApplicationStore.mediaViewerContent);
-        this.openProfileMediaViewer = Boolean(ApplicationStore.profileMediaViewerContent);
+        this.openMediaViewer = Boolean(AppStore.mediaViewerContent);
+        this.openProfileMediaViewer = Boolean(AppStore.profileMediaViewerContent);
+        this.openIV = Boolean(InstantViewStore.getCurrent());
+
+        this.ivInView = false;
+        this.openIVMedia = Boolean(InstantViewStore.viewerContent);
+        this.playing = false;
+
+        const player = this.videoRef.current;
+        if (player) {
+            player.load();
+        }
+    }
+
+    componentDidUpdate(prevProps, prevState, snapshot) {
+        if (prevProps.animation !== this.props.animation) {
+            this.setPlayerParams();
+        }
     }
 
     componentDidMount() {
+        AnimationStore.on('clientUpdateAnimationsInView', this.onClientUpdateAnimationsInView);
+        AppStore.on('clientUpdateFocusWindow', this.onClientUpdateFocusWindow);
+        AppStore.on('clientUpdateMediaViewerContent', this.onClientUpdateMediaViewerContent);
+        AppStore.on('clientUpdateProfileMediaViewerContent', this.onClientUpdateProfileMediaViewerContent);
         FileStore.on('clientUpdateAnimationThumbnailBlob', this.onClientUpdateAnimationThumbnailBlob);
         FileStore.on('clientUpdateAnimationBlob', this.onClientUpdateAnimationBlob);
-        ApplicationStore.on('clientUpdateFocusWindow', this.onClientUpdateFocusWindow);
-        ApplicationStore.on('clientUpdateMediaViewerContent', this.onClientUpdateMediaViewerContent);
-        ApplicationStore.on('clientUpdateProfileMediaViewerContent', this.onClientUpdateProfileMediaViewerContent);
         MessageStore.on('clientUpdateMessagesInView', this.onClientUpdateMessagesInView);
+        InstantViewStore.on('clientUpdateInstantViewContent', this.onClientUpdateInstantViewContent);
+        InstantViewStore.on('clientUpdateInstantViewViewerContent', this.onClientUpdateInstantViewViewerContent);
+        InstantViewStore.on('clientUpdateBlocksInView', this.onClientUpdateBlocksInView);
     }
 
     componentWillUnmount() {
-        FileStore.removeListener('clientUpdateAnimationThumbnailBlob', this.onClientUpdateAnimationThumbnailBlob);
-        FileStore.removeListener('clientUpdateAnimationBlob', this.onClientUpdateAnimationBlob);
-        ApplicationStore.removeListener('clientUpdateFocusWindow', this.onClientUpdateFocusWindow);
-        ApplicationStore.removeListener('clientUpdateMediaViewerContent', this.onClientUpdateMediaViewerContent);
-        ApplicationStore.removeListener(
-            'clientUpdateProfileMediaViewerContent',
-            this.onClientUpdateProfileMediaViewerContent
-        );
-        MessageStore.removeListener('clientUpdateMessagesInView', this.onClientUpdateMessagesInView);
+        AnimationStore.off('clientUpdateAnimationsInView', this.onClientUpdateAnimationsInView);
+        AppStore.off('clientUpdateFocusWindow', this.onClientUpdateFocusWindow);
+        AppStore.off('clientUpdateMediaViewerContent', this.onClientUpdateMediaViewerContent);
+        AppStore.off('clientUpdateProfileMediaViewerContent', this.onClientUpdateProfileMediaViewerContent);
+        FileStore.off('clientUpdateAnimationThumbnailBlob', this.onClientUpdateAnimationThumbnailBlob);
+        FileStore.off('clientUpdateAnimationBlob', this.onClientUpdateAnimationBlob);
+        MessageStore.off('clientUpdateMessagesInView', this.onClientUpdateMessagesInView);
+        InstantViewStore.off('clientUpdateInstantViewContent', this.onClientUpdateInstantViewContent);
+        InstantViewStore.off('clientUpdateInstantViewViewerContent', this.onClientUpdateInstantViewViewerContent);
+        InstantViewStore.off('clientUpdateBlocksInView', this.onClientUpdateBlocksInView);
     }
 
     startStopPlayer = () => {
         const player = this.videoRef.current;
-        if (player) {
-            if (this.inView && this.focused && !this.openMediaViewer && !this.openProfileMediaViewer) {
-                //console.log('clientUpdate player play message_id=' + this.props.messageId);
-                player.play();
-            } else {
-                //console.log('clientUpdate player pause message_id=' + this.props.messageId);
-                player.pause();
-            }
+        if (!player) return;
+
+        if (
+            this.windowFocused &&
+            ((this.inView && !this.openMediaViewer && !this.openProfileMediaViewer && !this.openIV) ||
+                (this.ivInView && !this.openIVMedia) ||
+                this.pickerInView)
+        ) {
+            player.play();
+        } else {
+            player.pause();
         }
     };
 
+    onClientUpdateInstantViewContent = update => {
+        this.openIV = Boolean(InstantViewStore.getCurrent());
+
+        this.startStopPlayer();
+    };
+
     onClientUpdateProfileMediaViewerContent = update => {
-        this.openProfileMediaViewer = Boolean(ApplicationStore.profileMediaViewerContent);
+        this.openProfileMediaViewer = Boolean(AppStore.profileMediaViewerContent);
 
         this.startStopPlayer();
     };
 
     onClientUpdateMediaViewerContent = update => {
-        this.openMediaViewer = Boolean(ApplicationStore.mediaViewerContent);
+        this.openMediaViewer = Boolean(AppStore.mediaViewerContent);
+
+        this.startStopPlayer();
+    };
+
+    onClientUpdateInstantViewViewerContent = update => {
+        this.openIVMedia = Boolean(InstantViewStore.viewerContent);
 
         this.startStopPlayer();
     };
 
     onClientUpdateFocusWindow = update => {
-        this.focused = update.focused;
+        this.windowFocused = update.focused;
 
         this.startStopPlayer();
     };
@@ -92,6 +137,24 @@ class Animation extends React.Component {
         this.startStopPlayer();
     };
 
+    onClientUpdateBlocksInView = update => {
+        const { pageBlock } = this.props;
+        if (!pageBlock) return;
+
+        this.ivInView = update.blocks.has(pageBlock);
+
+        this.startStopPlayer();
+    };
+
+    onClientUpdateAnimationsInView = update => {
+        const { animation } = this.props;
+        if (!animation) return;
+
+        this.pickerInView = update.animations.has(animation);
+
+        this.startStopPlayer();
+    }
+
     onClientUpdateAnimationBlob = update => {
         const { animation } = this.props.animation;
         const { fileId } = update;
@@ -99,7 +162,9 @@ class Animation extends React.Component {
         if (!animation) return;
 
         if (animation.id === fileId) {
-            this.forceUpdate();
+            this.forceUpdate(() => {
+                this.startStopPlayer();
+            });
         }
     };
 
@@ -109,83 +174,152 @@ class Animation extends React.Component {
 
         const { fileId } = update;
 
-        if (thumbnail.photo && thumbnail.photo.id === fileId) {
+        const { file } = thumbnail;
+        if (file && file.id === fileId) {
             this.forceUpdate();
         }
     };
 
-    render() {
-        const { displaySize, openMedia, t } = this.props;
-        const { thumbnail, animation, mime_type, width, height } = this.props.animation;
+    handlePlay = () => {
+        // setTimeout(() => {
+        //     this.playing = true;
+        //     this.forceUpdate();
+        // }, 300);
+    };
 
-        const fitPhotoSize = getFitSize(thumbnail || { width: width, height: height }, displaySize);
+    handleTimeUpdate = () => {
+        if (!this.playing) {
+            this.playing = true;
+            this.forceUpdate();
+        }
+    }
+
+    render() {
+        const { displaySize, stretch, openMedia, t, title, caption, type, style, showProgress } = this.props;
+        const { minithumbnail, thumbnail, animation, mime_type, width, height } = this.props.animation;
+        const { playing } = this;
+
+        const sizes = [...(thumbnail ? [thumbnail] : []), { width, height }];
+        const photoSize = getPhotoSize(sizes, displaySize);
+        const fitPhotoSize = getFitSize(photoSize, displaySize, stretch);
         if (!fitPhotoSize) return null;
 
-        const style = {
-            width: fitPhotoSize.width,
-            height: fitPhotoSize.height
+        const animationStyle = {
+            // background: 'black',
+            minWidth: stretch ? fitPhotoSize.width : null,
+            width: !stretch ? fitPhotoSize.width : null,
+            height: fitPhotoSize.height,
+            ...style
         };
 
-        const thumbnailSrc = getSrc(thumbnail ? thumbnail.photo : null);
-        const src = getSrc(animation);
+        const miniSrc = minithumbnail ? 'data:image/jpeg;base64, ' + minithumbnail.data : null;
+        const thumbnailSrc = getSrc(thumbnail ? thumbnail.file : null);
+        const isVideoThumbnail = thumbnail && thumbnail.format['@type'] === 'thumbnailFormatMpeg4';
+        const isBlurred = isBlurredThumbnail(thumbnail, displaySize);
 
-        const isBlurred = isBlurredThumbnail(thumbnail);
+        const src = getSrc(animation);
         const isGif = isGifMimeType(mime_type);
+        const source = src ? <source src={src} type={mime_type}/> : null;
 
         return (
-            <div className='animation' style={style} onClick={openMedia}>
-                {src ? (
-                    isGif ? (
-                        <img className='media-viewer-content-image' style={style} src={src} alt='' />
-                    ) : (
-                        <video
-                            ref={this.videoRef}
-                            className='media-viewer-content-image'
-                            src={src}
-                            poster={thumbnailSrc}
-                            muted
-                            autoPlay
-                            loop
-                            playsInline
-                            width={style.width}
-                            height={style.height}
-                        />
-                    )
-                ) : (
-                    <>
+            <div
+                className={classNames('animation', {
+                    'animation-message': type === 'message',
+                    'animation-picker': type === 'picker',
+                    'animation-iv': type === 'iv',
+                    'animation-title': title,
+                    'media-title': title,
+                    'animation-caption': caption,
+                    pointer: openMedia
+                })}
+                style={animationStyle}
+                onClick={openMedia}>
+                    {miniSrc && (
                         <img
-                            className={classNames('animation-preview', { 'media-blurred': isBlurred })}
-                            style={style}
-                            src={thumbnailSrc}
+                            className={classNames('video-preview', 'media-mini-blurred')}
+                            src={miniSrc}
                             alt=''
                         />
-                        <div className='animation-meta'>{getFileSize(animation)}</div>
-                    </>
+                    )}
+                    {src && (
+                        isGif ? (
+                            <img className='animation-preview' src={src} alt='' />
+                        ) : (
+                            <video
+                                ref={this.videoRef}
+                                className='animation-player'
+                                muted
+                                autoPlay={type !== 'picker'}
+                                loop
+                                playsInline
+                                width={animationStyle.width}
+                                height={animationStyle.height}
+                                onPlay={this.handlePlay}
+                                onTimeUpdate={this.handleTimeUpdate}
+                            >
+                                {source}
+                            </video>
+                        )
+                    )}
+                    { !playing && (
+                        <>
+                            { thumbnailSrc && (
+                                <>
+                                    { isVideoThumbnail ? (
+                                        <video
+                                            className={classNames('animation-thumbnail', { 'media-blurred': isBlurred })}
+                                            autoPlay={false}
+                                        >
+                                            <source src={thumbnailSrc} type='video/mp4'/>
+                                        </video>
+                                    ) : (
+                                        <img
+                                            className={classNames('animation-thumbnail', { 'media-blurred': isBlurred })}
+                                            src={thumbnailSrc}
+                                            alt=''
+                                        />
+                                    ) }
+                                </>
+                            )}
+                            {type !== 'picker' && type !== 'preview' && <div className='animation-meta'>{getFileSize(animation)}</div>}
+                        </>
+                    )}
+                {showProgress && (
+                    <FileProgress
+                        file={animation}
+                        download
+                        upload
+                        cancelButton
+                        icon={<div className='animation-play'>{t('AttachGif')}</div>}
+                    />
                 )}
-                <FileProgress
-                    file={animation}
-                    download
-                    upload
-                    cancelButton
-                    icon={<div className='animation-play'>{t('AttachGif')}</div>}
-                />
             </div>
         );
     }
 }
 
 Animation.propTypes = {
-    chatId: PropTypes.number.isRequired,
-    messageId: PropTypes.number.isRequired,
+    chatId: PropTypes.number,
+    messageId: PropTypes.number,
+    pageBlock: PropTypes.object,
     animation: PropTypes.object.isRequired,
-    openMedia: PropTypes.func.isRequired,
-    size: PropTypes.number,
-    displaySize: PropTypes.number
+    openMedia: PropTypes.func,
+    displaySize: PropTypes.number,
+    stretch: PropTypes.bool,
+    type: PropTypes.oneOf(['message', 'picker', 'iv', 'preview']),
+    showProgress: PropTypes.bool
 };
 
 Animation.defaultProps = {
-    size: PHOTO_SIZE,
-    displaySize: PHOTO_DISPLAY_SIZE
+    displaySize: PHOTO_DISPLAY_SIZE,
+    stretch: false,
+    showProgress: true
 };
 
-export default withTranslation()(Animation);
+const enhance = compose(
+    withSaveRef(),
+    withTranslation(),
+    withRestoreRef()
+);
+
+export default enhance(Animation);

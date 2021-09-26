@@ -7,40 +7,45 @@
 
 import React from 'react';
 import PropTypes from 'prop-types';
-import UserTileControl from '../../Tile/UserTileControl';
-import { formatPhoneNumber } from '../../../Utils/Common';
+import classNames from 'classnames';
+import { withTranslation } from 'react-i18next';
+import UserTile from '../../Tile/UserTile';
+import { formatPhoneNumber } from '../../../Utils/Phone';
 import { getUserFullName } from '../../../Utils/User';
 import UserStore from '../../../Stores/UserStore';
 import './Contact.css';
 
 class Contact extends React.Component {
     render() {
-        const { contact, openMedia } = this.props;
+        const { contact, title, openMedia, meta, caption, t } = this.props;
         if (!contact) return null;
 
-        const { user_id, first_name, last_name, phone_number } = contact;
+        const { user_id: id, first_name, last_name, phone_number } = contact;
 
-        const user = UserStore.get(user_id) || {
+        const user = UserStore.get(id) || {
             '@type': 'user',
             type: { '@type': 'userTypeRegular' },
-            id: user_id,
-            first_name: first_name,
-            last_name: last_name
+            id,
+            first_name,
+            last_name
         };
 
-        const fullName = getUserFullName(user);
+        const fullName = getUserFullName(id, user, t);
         const number = formatPhoneNumber(phone_number);
 
         return (
-            <div className='contact'>
+            <div className={classNames('contact', { 'media-title': title })}>
                 <div className='contact-tile'>
-                    <UserTileControl userId={user_id} user={user} />
+                    <UserTile userId={id} firstName={first_name} lastName={last_name} />
                 </div>
                 <div className='contact-content'>
                     <div className='contact-name'>
-                        {user_id > 0 ? <a onClick={openMedia}>{fullName}</a> : <span>{fullName}</span>}
+                        {id > 0 ? <a onClick={openMedia}>{fullName}</a> : <span>{fullName}</span>}
                     </div>
-                    <div className='contact-phone'>{number}</div>
+                    <div className='contact-phone'>
+                        {number}
+                        {!caption && meta}
+                    </div>
                 </div>
             </div>
         );
@@ -54,4 +59,4 @@ Contact.propTypes = {
     openMedia: PropTypes.func
 };
 
-export default Contact;
+export default withTranslation()(Contact);

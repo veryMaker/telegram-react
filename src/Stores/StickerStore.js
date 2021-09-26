@@ -4,22 +4,39 @@
  * This source code is licensed under the GPL v.3.0 license found in the
  * LICENSE file in the root directory of this source tree.
  */
-import { EventEmitter } from 'events';
+import EventEmitter from './EventEmitter';
 import TdLibController from '../Controllers/TdLibController';
 
 class StickerStore extends EventEmitter {
     constructor() {
         super();
 
-        this.stickerSet = null;
-        this.hint = null;
+        this.reset();
 
         this.addTdLibListener();
-        this.setMaxListeners(Infinity);
     }
+
+    reset = () => {
+        this.stickerSet = null;
+        this.hint = null;
+        this.animationData = new WeakMap();
+    };
 
     onUpdate = update => {
         switch (update['@type']) {
+            case 'updateAuthorizationState': {
+                const { authorization_state } = update;
+                if (!authorization_state) break;
+
+                switch (authorization_state['@type']) {
+                    case 'authorizationStateClosed': {
+                        this.reset();
+                        break;
+                    }
+                }
+
+                break;
+            }
             case 'updateInstalledStickerSets': {
                 const { sticker_set_ids } = update;
                 if (this.stickerSet) {
@@ -30,6 +47,10 @@ class StickerStore extends EventEmitter {
                 }
 
                 this.emit('updateInstalledStickerSets', update);
+                break;
+            }
+            case 'updateRecentStickers': {
+                this.emit('updateRecentStickers', update);
                 break;
             }
             default:
@@ -73,20 +94,32 @@ class StickerStore extends EventEmitter {
                 this.emit('clientUpdateStickerSetPosition', update);
                 break;
             }
+            case 'clientUpdateStickerPreview': {
+                this.emit('clientUpdateStickerPreview', update);
+                break;
+            }
             default:
                 break;
         }
     };
 
     addTdLibListener = () => {
-        TdLibController.addListener('update', this.onUpdate);
-        TdLibController.addListener('clientUpdate', this.onClientUpdate);
+        TdLibController.on('update', this.onUpdate);
+        TdLibController.on('clientUpdate', this.onClientUpdate);
     };
 
     removeTdLibListener = () => {
-        TdLibController.removeListener('update', this.onUpdate);
-        TdLibController.removeListener('clientUpdate', this.onClientUpdate);
+        TdLibController.off('update', this.onUpdate);
+        TdLibController.off('clientUpdate', this.onClientUpdate);
     };
+
+    getAnimationData(key) {
+        return this.animationData.get(key);
+    }
+
+    setAnimationData(key, data) {
+        this.animationData.set(key, data);
+    }
 }
 
 const store = new StickerStore();

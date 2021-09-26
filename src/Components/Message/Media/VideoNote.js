@@ -9,18 +9,20 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import classNames from 'classnames';
 import VolumeOffIcon from '@material-ui/icons/VolumeOff';
-import ArrowDownwardIcon from '@material-ui/icons/ArrowDownward';
+import DownloadIcon from '../../../Assets/Icons/Download';
 import CircularProgress from '@material-ui/core/CircularProgress';
 import FileProgress from '../../Viewer/FileProgress';
 import MediaStatus from './MediaStatus';
 import { getFileSize, getSrc } from '../../../Utils/File';
 import { isBlurredThumbnail } from '../../../Utils/Media';
-import { getDurationString } from '../../../Utils/Common';
+import { clamp, getDurationString } from '../../../Utils/Common';
+import { isCurrentSource } from '../../../Utils/Player';
 import { PHOTO_DISPLAY_SIZE, PHOTO_SIZE } from '../../../Constants';
-import PlayerStore from '../../../Stores/PlayerStore';
-import FileStore from '../../../Stores/FileStore';
-import MessageStore from '../../../Stores/MessageStore';
 import ApplicationStore from '../../../Stores/ApplicationStore';
+import FileStore from '../../../Stores/FileStore';
+import InstantViewStore from '../../../Stores/InstantViewStore';
+import PlayerStore from '../../../Stores/PlayerStore';
+import MessageStore from '../../../Stores/MessageStore';
 import './VideoNote.css';
 
 const circleStyle = {
@@ -32,6 +34,7 @@ class VideoNote extends React.Component {
         super(props);
 
         this.videoRef = React.createRef();
+        this.sourceRef = React.createRef();
 
         const { chatId, messageId } = props;
         const { video } = props.videoNote;
@@ -47,10 +50,11 @@ class VideoNote extends React.Component {
             videoDuration: active && time ? time.duration : 0.0
         };
 
-        this.focused = window.hasFocus;
+        this.windowFocused = window.hasFocus;
         this.inView = false;
         this.openMediaViewer = Boolean(ApplicationStore.mediaViewerContent);
         this.openProfileMediaViewer = Boolean(ApplicationStore.profileMediaViewerContent);
+        this.openIV = Boolean(InstantViewStore.getCurrent());
     }
 
     updateVideoSrc() {
@@ -80,8 +84,13 @@ class VideoNote extends React.Component {
             //console.log('clientUpdate release video.srcObject');
             player.srcObject = null;
         }
-        if (player.src !== src) {
-            player.src = src;
+
+        const source = this.sourceRef.current;
+        if (!source) return;
+
+        if (source.src !== src) {
+            source.src = src;
+            player.load();
         }
     }
 
@@ -96,6 +105,7 @@ class VideoNote extends React.Component {
         ApplicationStore.on('clientUpdateFocusWindow', this.onClientUpdateFocusWindow);
         ApplicationStore.on('clientUpdateMediaViewerContent', this.onClientUpdateMediaViewerContent);
         ApplicationStore.on('clientUpdateProfileMediaViewerContent', this.onClientUpdateProfileMediaViewerContent);
+        InstantViewStore.on('clientUpdateInstantViewContent', this.onClientUpdateInstantViewContent);
 
         PlayerStore.on('clientUpdateMediaActive', this.onClientUpdateMediaActive);
         PlayerStore.on('clientUpdateMediaCaptureStream', this.onClientUpdateMediaCaptureStream);
@@ -104,39 +114,47 @@ class VideoNote extends React.Component {
     }
 
     componentWillUnmount() {
-        FileStore.removeListener('clientUpdateVideoNoteThumbnailBlob', this.onClientUpdateVideoNoteThumbnailBlob);
-        FileStore.removeListener('clientUpdateVideoNoteBlob', this.onClientUpdateVideoNoteBlob);
+        FileStore.off('clientUpdateVideoNoteThumbnailBlob', this.onClientUpdateVideoNoteThumbnailBlob);
+        FileStore.off('clientUpdateVideoNoteBlob', this.onClientUpdateVideoNoteBlob);
 
-        MessageStore.removeListener('clientUpdateMessagesInView', this.onClientUpdateMessagesInView);
+        MessageStore.off('clientUpdateMessagesInView', this.onClientUpdateMessagesInView);
 
-        ApplicationStore.removeListener('clientUpdateFocusWindow', this.onClientUpdateFocusWindow);
-        ApplicationStore.removeListener('clientUpdateMediaViewerContent', this.onClientUpdateMediaViewerContent);
-        ApplicationStore.removeListener(
-            'clientUpdateProfileMediaViewerContent',
-            this.onClientUpdateProfileMediaViewerContent
-        );
+        ApplicationStore.off('clientUpdateFocusWindow', this.onClientUpdateFocusWindow);
+        ApplicationStore.off('clientUpdateMediaViewerContent', this.onClientUpdateMediaViewerContent);
+        ApplicationStore.off('clientUpdateProfileMediaViewerContent', this.onClientUpdateProfileMediaViewerContent);
+        InstantViewStore.off('clientUpdateInstantViewContent', this.onClientUpdateInstantViewContent);
 
-        PlayerStore.removeListener('clientUpdateMediaActive', this.onClientUpdateMediaActive);
-        PlayerStore.removeListener('clientUpdateMediaCaptureStream', this.onClientUpdateMediaCaptureStream);
-        PlayerStore.removeListener('clientUpdateMediaTime', this.onClientUpdateMediaTime);
-        PlayerStore.removeListener('clientUpdateMediaEnd', this.onClientUpdateMediaEnd);
+        PlayerStore.off('clientUpdateMediaActive', this.onClientUpdateMediaActive);
+        PlayerStore.off('clientUpdateMediaCaptureStream', this.onClientUpdateMediaCaptureStream);
+        PlayerStore.off('clientUpdateMediaTime', this.onClientUpdateMediaTime);
+        PlayerStore.off('clientUpdateMediaEnd', this.onClientUpdateMediaEnd);
     }
 
     startStopPlayer = () => {
         const player = this.videoRef.current;
         if (player) {
-            if (this.inView && this.focused && !this.openMediaViewer && !this.openProfileMediaViewer) {
-                //console.log('clientUpdate player play message_id=' + this.props.messageId);
+            if (
+                this.inView &&
+                this.windowFocused &&
+                !this.openMediaViewer &&
+                !this.openProfileMediaViewer &&
+                !this.openIV
+            ) {
                 player.play();
             } else {
                 if (this.state.active) {
                     return;
                 }
 
-                //console.log('clientUpdate player pause message_id=' + this.props.messageId);
                 player.pause();
             }
         }
+    };
+
+    onClientUpdateInstantViewContent = update => {
+        this.openIV = Boolean(InstantViewStore.getCurrent());
+
+        this.startStopPlayer();
     };
 
     onClientUpdateProfileMediaViewerContent = update => {
@@ -152,7 +170,7 @@ class VideoNote extends React.Component {
     };
 
     onClientUpdateFocusWindow = update => {
-        this.focused = update.focused;
+        this.windowFocused = update.focused;
 
         this.startStopPlayer();
     };
@@ -179,47 +197,50 @@ class VideoNote extends React.Component {
     };
 
     onClientUpdateMediaTime = update => {
-        const { chatId, messageId } = this.props;
-        if (chatId === update.chatId && messageId === update.messageId) {
-            const player = this.videoRef.current;
-            if (player) {
-                this.setState({
-                    currentTime: update.currentTime,
-                    videoDuration: update.duration
-                });
-            }
-        }
+        const { chatId, messageId, block } = this.props;
+        const { currentTime, duration: videoDuration, source } = update;
+
+        if (!isCurrentSource(chatId, messageId, block, source)) return;
+
+        const player = this.videoRef.current;
+        if (!player) return;
+
+        this.setState({
+            currentTime,
+            videoDuration
+        });
     };
 
     onClientUpdateMediaEnd = update => {
-        const { chatId, messageId } = this.props;
+        const { chatId, messageId, block } = this.props;
+        const { source } = update;
 
-        if (chatId === update.chatId && messageId === update.messageId) {
-            this.setState(
-                {
-                    active: false,
-                    srcObject: null,
-                    currentTime: 0
-                },
-                () => {
-                    const player = this.videoRef.current;
-                    if (!player) return;
+        if (!isCurrentSource(chatId, messageId, block, source)) return;
 
-                    this.updateVideoSrc();
+        this.setState(
+            {
+                active: false,
+                srcObject: null,
+                currentTime: 0
+            },
+            () => {
+                const player = this.videoRef.current;
+                if (!player) return;
 
-                    if (!window.hasFocus) {
-                        player.pause();
-                    }
+                this.updateVideoSrc();
+
+                if (!window.hasFocus) {
+                    player.pause();
                 }
-            );
-        }
+            }
+        );
     };
 
     onClientUpdateMediaActive = update => {
-        const { chatId, messageId } = this.props;
-        const { video } = this.props.videoNote;
+        const { chatId, messageId, block } = this.props;
+        const { source } = update;
 
-        if (chatId === update.chatId && messageId === update.messageId) {
+        if (isCurrentSource(chatId, messageId, block, source)) {
             if (this.state.active) {
             } else {
                 this.setState({
@@ -272,7 +293,8 @@ class VideoNote extends React.Component {
 
         const { fileId } = update;
 
-        if (thumbnail.photo && thumbnail.photo.id === fileId) {
+        const { file } = thumbnail;
+        if (file && file.id === fileId) {
             this.forceUpdate();
         }
     };
@@ -290,9 +312,9 @@ class VideoNote extends React.Component {
     };
 
     render() {
-        const { displaySize, chatId, messageId, openMedia } = this.props;
+        const { displaySize, chatId, messageId, openMedia, meta } = this.props;
         const { active, currentTime, videoDuration } = this.state;
-        const { thumbnail, video, duration } = this.props.videoNote;
+        const { minithumbnail, thumbnail, video, duration } = this.props.videoNote;
 
         const message = MessageStore.get(chatId, messageId);
         if (!message) return null;
@@ -300,14 +322,15 @@ class VideoNote extends React.Component {
         const style = { width: 200, height: 200 };
         if (!style) return null;
 
-        const thumbnailSrc = getSrc(thumbnail ? thumbnail.photo : null);
-        const src = getSrc(video);
-        const isBlurred = isBlurredThumbnail(thumbnail);
+        const miniSrc = minithumbnail ? 'data:image/jpeg;base64, ' + minithumbnail.data : null;
+        const thumbnailSrc = getSrc(thumbnail ? thumbnail.file : null);
+        const isBlurred = isBlurredThumbnail(thumbnail, displaySize);
 
+        const src = getSrc(video);
         let progress = 0;
         if (videoDuration && currentTime) {
             const progressTime = currentTime + 0.25;
-            progress = (progressTime / videoDuration) * 100;
+            progress = clamp(progressTime / videoDuration * 100, 0, 100);
         }
 
         return (
@@ -315,12 +338,27 @@ class VideoNote extends React.Component {
                 className={classNames('video-note', { 'video-note-playing': active })}
                 style={style}
                 onClick={openMedia}>
+                <div className='video-note-round'>
+                    {miniSrc && (
+                        <img
+                            className={classNames('video-preview', 'media-mini-blurred')}
+                            src={miniSrc}
+                            alt=''
+                        />
+                    )}
+                    { thumbnailSrc && (
+                        <img
+                            className={classNames('animation-thumbnail', { 'media-blurred': isBlurred })}
+                            src={thumbnailSrc}
+                            alt=''
+                        />
+                    )}
+                </div>
                 {src ? (
                     <>
                         <video
                             ref={this.videoRef}
-                            className={classNames('media-viewer-content-image', 'video-note-round')}
-                            poster={thumbnailSrc}
+                            className={classNames('media-viewer-content-image', 'video-note-video')}
                             muted
                             autoPlay
                             loop
@@ -328,7 +366,9 @@ class VideoNote extends React.Component {
                             width={style.width}
                             height={style.height}
                             onCanPlay={this.handleCanPlay}
-                        />
+                        >
+                            <source ref={this.sourceRef} src={null} type='video/mp4'/>
+                        </video>
                         <div className='video-note-player'>
                             <div className='video-note-progress'>
                                 <CircularProgress
@@ -350,14 +390,6 @@ class VideoNote extends React.Component {
                     </>
                 ) : (
                     <>
-                        <div className='video-note-round'>
-                            <img
-                                className={classNames('animation-preview', { 'media-blurred': isBlurred })}
-                                style={style}
-                                src={thumbnailSrc}
-                                alt=''
-                            />
-                        </div>
                         <div className='animation-meta'>
                             {getDurationString(duration) + ' ' + getFileSize(video)}
                             <MediaStatus chatId={chatId} messageId={messageId} icon={'\u00A0•'} />
@@ -367,17 +399,20 @@ class VideoNote extends React.Component {
                         </div>
                     </>
                 )}
-                <FileProgress file={video} download upload cancelButton icon={<ArrowDownwardIcon />} />
+                <FileProgress file={video} download upload cancelButton icon={<DownloadIcon />} />
+                {meta}
             </div>
         );
     }
 }
 
 VideoNote.propTypes = {
-    chatId: PropTypes.number.isRequired,
-    messageId: PropTypes.number.isRequired,
+    chatId: PropTypes.number,
+    messageId: PropTypes.number,
+    block: PropTypes.object,
+
     videoNote: PropTypes.object.isRequired,
-    openMedia: PropTypes.func.isRequired,
+    openMedia: PropTypes.func,
     size: PropTypes.number,
     displaySize: PropTypes.number
 };

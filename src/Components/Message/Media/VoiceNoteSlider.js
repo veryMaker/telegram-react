@@ -7,48 +7,51 @@
 
 import React from 'react';
 import PropTypes from 'prop-types';
-import withStyles from '@material-ui/core/styles/withStyles';
-import Slider from '@material-ui/lab/Slider';
+import classNames from 'classnames';
+import Slider from '@material-ui/core/Slider';
+import Player from '../../Player/Player';
+import Waveform from './Waveform';
+import { isCurrentSource } from '../../../Utils/Player';
 import { PLAYER_PROGRESS_TIMEOUT_MS } from '../../../Constants';
+import MessageStore from '../../../Stores/MessageStore';
 import PlayerStore from '../../../Stores/PlayerStore';
+import TdLibController from '../../../Controllers/TdLibController';
 import './VoiceNoteSlider.css';
 
-const styles = {
-    slider: {
-        maxWidth: 216
-    },
-    track: {
-        transition: 'width 0ms linear 0ms, height 0ms linear 0ms, transform 0ms linear 0ms'
-    },
-    thumbWrapper: {
-        transition: 'transform 0ms linear 0ms'
-    },
-    thumb: {
-        transition: 'transform 0ms linear 0ms, box-shadow 0ms linear 0ms'
-    }
-};
-
 class VoiceNoteSlider extends React.Component {
-    constructor(props) {
-        super(props);
+    state = { };
 
-        const { message, time } = PlayerStore;
-        const { chatId, messageId, duration } = this.props;
+    static getDerivedStateFromProps(props, state) {
+        const { chatId, messageId, block, duration, waveform } = props;
 
-        const active = message && message.chat_id === chatId && message.id === messageId;
-        const currentTime = active && time ? time.currentTime : 0;
-        const audioDuration = active && time && time.duration ? time.duration : duration;
+        if (state.prevChatId !== chatId || state.prevMessageId !== messageId || state.prevBlock !== block) {
 
-        this.state = {
-            active: active,
-            currentTime: currentTime,
-            duration: audioDuration,
-            value: this.getValue(currentTime, audioDuration, active)
-        };
+            const { message, block: currentBlock, time } = PlayerStore;
+
+            const active = message && message.chat_id === chatId && message.id === messageId || block === currentBlock;
+            const currentTime = active && time ? time.currentTime : 0;
+            const audioDuration = active && time && time.duration ? time.duration : duration;
+            const buffered = active && time ? time.buffered : null;
+            const value = VoiceNoteSlider.getValue(currentTime, audioDuration, active, waveform, false);
+
+            return {
+                prevChatId: chatId,
+                prevMessageId: messageId,
+                prevBlock: block,
+                active,
+                currentTime,
+                duration: audioDuration,
+                value,
+                buffered
+            };
+        }
+
+        return null;
     }
 
     shouldComponentUpdate(nextProps, nextState) {
-        const { active, value } = this.state;
+        const { style } = this.props;
+        const { active, value, buffered } = this.state;
 
         if (nextState.value !== value) {
             return true;
@@ -58,36 +61,49 @@ class VoiceNoteSlider extends React.Component {
             return true;
         }
 
+        if (nextState.buffered !== buffered) {
+            return true;
+        }
+
+        if (nextProps.style !== style) {
+            return true;
+        }
+
         return false;
     }
 
     componentDidMount() {
         PlayerStore.on('clientUpdateMediaActive', this.onClientUpdateMediaActive);
+        PlayerStore.on('clientUpdateMediaLoadedMetadata', this.onClientUpdateMediaLoadedMetadata);
         PlayerStore.on('clientUpdateMediaTime', this.onClientUpdateMediaTime);
+        PlayerStore.on('clientUpdateMediaProgress', this.onClientUpdateMediaProgress);
         PlayerStore.on('clientUpdateMediaEnd', this.onClientUpdateMediaEnd);
     }
 
     componentWillUnmount() {
-        PlayerStore.removeListener('clientUpdateMediaActive', this.onClientUpdateMediaActive);
-        PlayerStore.removeListener('clientUpdateMediaTime', this.onClientUpdateMediaTime);
-        PlayerStore.removeListener('clientUpdateMediaEnd', this.onClientUpdateMediaEnd);
+        PlayerStore.off('clientUpdateMediaActive', this.onClientUpdateMediaActive);
+        PlayerStore.off('clientUpdateMediaLoadedMetadata', this.onClientUpdateMediaLoadedMetadata);
+        PlayerStore.off('clientUpdateMediaTime', this.onClientUpdateMediaTime);
+        PlayerStore.off('clientUpdateMediaProgress', this.onClientUpdateMediaProgress);
+        PlayerStore.off('clientUpdateMediaEnd', this.onClientUpdateMediaEnd);
     }
 
-    reset = () => {
-        const { duration } = this.props;
-        const { value } = this.state;
+    reset() {
+        const { waveform } = this.props;
+        const { value, duration, dragging } = this.state;
 
         if (value === 1) {
             this.setState({
                 active: false,
-                currentTime: 0
+                currentTime: 0,
+                buffered: null
             });
 
             setTimeout(() => {
                 const { currentTime } = this.state;
                 if (!currentTime) {
                     this.setState({
-                        value: this.getValue(0, duration, false)
+                        value: VoiceNoteSlider.getValue(0, duration, false, waveform, dragging)
                     });
                 }
             }, PLAYER_PROGRESS_TIMEOUT_MS);
@@ -95,67 +111,172 @@ class VoiceNoteSlider extends React.Component {
             this.setState({
                 active: false,
                 currentTime: 0,
-                value: this.getValue(0, duration, false)
+                buffered: null,
+                value: VoiceNoteSlider.getValue(0, duration, false, waveform, dragging)
             });
         }
-    };
+    }
 
     onClientUpdateMediaEnd = update => {
-        const { chatId, messageId } = this.props;
+        const { chatId, messageId, block } = this.props;
+        const { source } = update;
 
-        if (chatId === update.chatId && messageId === update.messageId) {
-            this.reset();
-        }
+        if (!isCurrentSource(chatId, messageId, block, source)) return;
+
+        this.reset();
+    };
+
+    onClientUpdateMediaLoadedMetadata = update => {
+        const { chatId, messageId, block } = this.props;
+        const { source, duration, buffered } = update;
+
+        if (!isCurrentSource(chatId, messageId, block, source)) return;
+
+        this.setState({
+            duration,
+            buffered
+        });
+    };
+
+    onClientUpdateMediaProgress = update => {
+        const { chatId, messageId, block } = this.props;
+        const { source, buffered } = update;
+
+        if (!isCurrentSource(chatId, messageId, block, source)) return;
+
+        this.setState({
+            buffered
+        });
     };
 
     onClientUpdateMediaTime = update => {
-        const { chatId, messageId, duration } = this.props;
-        const { active } = this.state;
+        const { chatId, messageId, block, waveform } = this.props;
+        const { active, duration, dragging, value } = this.state;
+        const { source, currentTime, buffered } = update;
 
-        if (chatId === update.chatId && messageId === update.messageId) {
-            this.setState({
-                currentTime: update.currentTime,
-                duration: update.duration || duration,
-                value: this.getValue(update.currentTime, update.duration || duration, active)
-            });
-        }
+        if (!isCurrentSource(chatId, messageId, block, source)) return;
+
+        this.setState({
+            currentTime,
+            buffered,
+            value: dragging ? value : VoiceNoteSlider.getValue(currentTime, duration, active, waveform, dragging)
+        });
     };
 
     onClientUpdateMediaActive = update => {
-        const { chatId, messageId, duration } = this.props;
-        const { active, currentTime } = this.state;
+        const { chatId, messageId, block, waveform } = this.props;
+        const { active, currentTime, duration, dragging } = this.state;
+        const { source, currentTime: prevCurrentTime } = update;
 
-        if (chatId === update.chatId && messageId === update.messageId) {
+        if (isCurrentSource(chatId, messageId, block, source)) {
+            let { value } = this.state;
+            if (!dragging) {
+                value = VoiceNoteSlider.getValue(active ? currentTime : prevCurrentTime, duration, true, waveform, dragging);
+            }
+
             this.setState({
                 active: true,
-                currentTime: active ? currentTime : 0,
-                value: this.getValue(active ? currentTime : 0, duration, true)
+                currentTime: active ? currentTime : prevCurrentTime,
+                value
             });
         } else if (active) {
             this.reset();
         }
     };
 
-    getValue = (currentTime, duration, active) => {
+    static getValue(currentTime, duration, active, waveform, dragging) {
+        // if (waveform && !dragging) {
+        //     currentTime += 0.25;
+        // }
+
         return active ? currentTime / duration : 0;
+    }
+
+    handleMouseDown = event => {
+        event.stopPropagation();
+
+        this.setState({
+            dragging: true
+        });
+    };
+
+    handleChange = (event, value) => {
+        const { chatId, messageId, block } = this.props;
+        const { active, dragging } = this.state;
+        if (!active) return;
+
+        const source = MessageStore.get(chatId, messageId) || { '@type': 'instantViewSource', block};
+
+        if (dragging) {
+            TdLibController.clientUpdate({
+                '@type': 'clientUpdateMediaSeeking',
+                source,
+                value
+            });
+        }
+
+        this.setState({
+            value
+        });
+    };
+
+    handleChangeCommitted = () => {
+        const { chatId, messageId, block, duration } = this.props;
+        const { value } = this.state;
+
+        const source = MessageStore.get(chatId, messageId) || { '@type': 'instantViewSource', block};
+
+        TdLibController.clientUpdate({
+            '@type': 'clientUpdateMediaSeek',
+            source,
+            value,
+            duration
+        });
+
+        this.setState({
+            dragging: false
+        });
+    };
+
+    handleClick = event => {
+        event.stopPropagation();
+        event.preventDefault();
     };
 
     render() {
-        const { classes } = this.props;
-        const { value } = this.state;
+        const { chatId, messageId, audio, waveform, className, style } = this.props;
+        const { duration, value, dragging, buffered } = this.state;
+
+        const time = value * duration;
+        const bufferedTime = Player.getBufferedTime(time, buffered);
+        const bufferedValue = duration > 0 ? bufferedTime / duration : 0;
+
+        // const ranges = [];
+        // for (let i = 0; buffered && i < buffered.length; i++) {
+        //     ranges.push({ start: buffered.start(i), end: buffered.end(i)})
+        // }
+        //
 
         return (
-            <div className='voice-note-slider'>
+            <div className={classNames('voice-note-slider', className)} style={style}>
+                {!audio && <Waveform id={`waveform_${chatId}_${messageId}`} dragging={dragging} data={waveform} value={value}/>}
+                {audio && <div className='voice-note-slider-buffered' style={{ width: `${bufferedValue*100}%`}}/>}
                 <Slider
-                    className={classes.slider}
+                    className={classNames('voice-note-slider-component', { 'voice-note-slider-component-hidden': !audio })}
                     classes={{
-                        track: classes.track,
-                        thumbWrapper: classes.thumbWrapper,
-                        thumb: classes.thumb
+                        track: 'voice-note-slider-track',
+                        thumb: 'voice-note-slider-thumb',
+                        active: 'voice-note-slider-active',
+                        rail: 'voice-note-slider-rail'
                     }}
                     min={0}
                     max={1}
+                    step={0.01}
                     value={value}
+                    onChange={this.handleChange}
+                    onChangeCommitted={this.handleChangeCommitted}
+                    onMouseDown={this.handleMouseDown}
+                    onClick={this.handleClick}
                 />
             </div>
         );
@@ -163,9 +284,13 @@ class VoiceNoteSlider extends React.Component {
 }
 
 VoiceNoteSlider.propTypes = {
-    chatId: PropTypes.number.isRequired,
-    messageId: PropTypes.number.isRequired,
-    duration: PropTypes.number.isRequired
+    chatId: PropTypes.number,
+    messageId: PropTypes.number,
+    block: PropTypes.object,
+
+    audio: PropTypes.bool,
+    duration: PropTypes.number.isRequired,
+    waveform: PropTypes.string
 };
 
-export default withStyles(styles)(VoiceNoteSlider);
+export default VoiceNoteSlider;

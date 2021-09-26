@@ -5,33 +5,31 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import React, { Component } from 'react';
+import React from 'react';
 import classNames from 'classnames';
-import { compose } from 'recompose';
-import withStyles from '@material-ui/core/styles/withStyles';
+import { compose } from '../Utils/HOC';
 import withLanguage from '../Language';
-import withTheme from '../Theme';
 import withSnackbarNotifications from '../Notifications';
-import ForwardDialog from './Dialog/ForwardDialog';
+import Actions from './Actions';
+import Call from './Calls/Call';
 import ChatInfo from './ColumnRight/ChatInfo';
 import Dialogs from './ColumnLeft/Dialogs';
 import DialogDetails from './ColumnMiddle/DialogDetails';
-import Footer from './Footer';
+import ForwardDialog from './Popup/ForwardDialog';
+import GroupCall from './Calls/GroupCall';
+import InstantViewer from './InstantView/InstantViewer';
 import MediaViewer from './Viewer/MediaViewer';
+import PipPlayer from './Player/PipPlayer';
 import ProfileMediaViewer from './Viewer/ProfileMediaViewer';
 import { highlightMessage } from '../Actions/Client';
+import AppStore from '../Stores/ApplicationStore';
+import CallStore from '../Stores/CallStore';
 import ChatStore from '../Stores/ChatStore';
+import InstantViewStore from '../Stores/InstantViewStore';
 import UserStore from '../Stores/UserStore';
-import ApplicationStore from '../Stores/ApplicationStore';
+import PlayerStore from '../Stores/PlayerStore';
 import TdLibController from '../Controllers/TdLibController';
 import '../TelegramApp.css';
-
-const styles = theme => ({
-    page: {
-        background: theme.palette.type === 'dark' ? theme.palette.background.default : '#FFFFFF',
-        color: theme.palette.text.primary
-    }
-});
 
 class MainPage extends React.Component {
     constructor(props) {
@@ -39,47 +37,94 @@ class MainPage extends React.Component {
 
         this.dialogDetailsRef = React.createRef();
 
+        const { isChatDetailsVisible, mediaViewerContent, profileMediaViewerContent, isSmallWidth } = AppStore;
+
         this.state = {
-            isChatDetailsVisible: ApplicationStore.isChatDetailsVisible,
-            mediaViewerContent: ApplicationStore.mediaViewerContent,
-            profileMediaViewerContent: ApplicationStore.profileMediaViewerContent,
-            forwardInfo: null
+            isChatDetailsVisible,
+            mediaViewerContent,
+            profileMediaViewerContent,
+            isSmallWidth,
+            forwardInfo: null,
+            instantViewContent: null,
+            videoInfo: null,
+            groupCallId: 0,
+            callId: 0
         };
-
-        /*this.store = localForage.createInstance({
-                    name: 'tdlib'
-                });*/
-
-        //this.initDB();
     }
 
     componentDidMount() {
         UserStore.on('clientUpdateOpenUser', this.onClientUpdateOpenUser);
         ChatStore.on('clientUpdateOpenChat', this.onClientUpdateOpenChat);
 
-        ApplicationStore.on('clientUpdateChatDetailsVisibility', this.onClientUpdateChatDetailsVisibility);
-        ApplicationStore.on('clientUpdateMediaViewerContent', this.onClientUpdateMediaViewerContent);
-        ApplicationStore.on('clientUpdateProfileMediaViewerContent', this.onClientUpdateProfileMediaViewerContent);
-        ApplicationStore.on('clientUpdateForward', this.onClientUpdateForward);
+        AppStore.on('clientUpdateChatDetailsVisibility', this.onClientUpdateChatDetailsVisibility);
+        AppStore.on('clientUpdateMediaViewerContent', this.onClientUpdateMediaViewerContent);
+        AppStore.on('clientUpdatePageWidth', this.onClientUpdatePageWidth);
+        AppStore.on('clientUpdateProfileMediaViewerContent', this.onClientUpdateProfileMediaViewerContent);
+        AppStore.on('clientUpdateForward', this.onClientUpdateForward);
+        CallStore.on('clientUpdateGroupCallPanel', this.onClientUpdateGroupCallPanel);
+        CallStore.on('clientUpdateCallPanel', this.onClientUpdateCallPanel);
+        InstantViewStore.on('clientUpdateInstantViewContent', this.onClientUpdateInstantViewContent);
+        PlayerStore.on('clientUpdatePictureInPicture', this.onClientUpdatePictureInPicture);
     }
 
     componentWillUnmount() {
-        UserStore.removeListener('clientUpdateOpenUser', this.onClientUpdateOpenUser);
-        ChatStore.removeListener('clientUpdateOpenChat', this.onClientUpdateOpenChat);
+        UserStore.off('clientUpdateOpenUser', this.onClientUpdateOpenUser);
+        ChatStore.off('clientUpdateOpenChat', this.onClientUpdateOpenChat);
 
-        ApplicationStore.removeListener('clientUpdateChatDetailsVisibility', this.onClientUpdateChatDetailsVisibility);
-        ApplicationStore.removeListener('clientUpdateMediaViewerContent', this.onClientUpdateMediaViewerContent);
-        ApplicationStore.removeListener(
-            'clientUpdateProfileMediaViewerContent',
-            this.onClientUpdateProfileMediaViewerContent
-        );
-        ApplicationStore.removeListener('clientUpdateForward', this.onClientUpdateForward);
+        AppStore.off('clientUpdateChatDetailsVisibility', this.onClientUpdateChatDetailsVisibility);
+        AppStore.off('clientUpdateMediaViewerContent', this.onClientUpdateMediaViewerContent);
+        AppStore.off('clientUpdatePageWidth', this.onClientUpdatePageWidth);
+        AppStore.off('clientUpdateProfileMediaViewerContent', this.onClientUpdateProfileMediaViewerContent);
+        AppStore.off('clientUpdateForward', this.onClientUpdateForward);
+        CallStore.off('clientUpdateGroupCallPanel', this.onClientUpdateGroupCallPanel);
+        CallStore.off('clientUpdateCallPanel', this.onClientUpdateCallPanel);
+        InstantViewStore.off('clientUpdateInstantViewContent', this.onClientUpdateInstantViewContent);
+        PlayerStore.off('clientUpdatePictureInPicture', this.onClientUpdatePictureInPicture);
     }
 
-    onClientUpdateOpenChat = update => {
-        const { chatId, messageId, popup } = update;
+    onClientUpdateCallPanel = update => {
+        const { opened, callId } = update;
 
-        this.handleSelectChat(chatId, messageId, popup);
+        this.setState({
+            callId: opened ? callId : 0
+        });
+    };
+
+    onClientUpdateGroupCallPanel = update => {
+        const { opened } = update;
+        const { currentGroupCall } = CallStore;
+
+        this.setState({
+            groupCallId: currentGroupCall && opened ? currentGroupCall.groupCallId : 0
+        });
+    };
+
+    onClientUpdatePictureInPicture = update => {
+        const { videoInfo } = update;
+
+        this.setState({
+            videoInfo
+        });
+    };
+
+    onClientUpdatePageWidth = update => {
+        const { isSmallWidth } = update;
+
+        this.setState({ isSmallWidth });
+    };
+
+    onClientUpdateInstantViewContent = update => {
+        const { content } = update;
+
+        this.setState({
+            instantViewContent: content
+        });
+    };
+
+    onClientUpdateOpenChat = update => {
+        const { chatId, messageId, popup, options } = update;
+
+        this.handleSelectChat(chatId, messageId, popup, options || AppStore.chatSelectOptions);
     };
 
     onClientUpdateOpenUser = update => {
@@ -89,19 +134,21 @@ class MainPage extends React.Component {
     };
 
     onClientUpdateChatDetailsVisibility = update => {
-        this.setState({
-            isChatDetailsVisible: ApplicationStore.isChatDetailsVisible
-        });
+        const { isChatDetailsVisible } = AppStore;
+
+        this.setState({ isChatDetailsVisible });
     };
 
     onClientUpdateMediaViewerContent = update => {
-        this.setState({ mediaViewerContent: ApplicationStore.mediaViewerContent });
+        const { mediaViewerContent } = AppStore;
+
+        this.setState({ mediaViewerContent });
     };
 
     onClientUpdateProfileMediaViewerContent = update => {
-        this.setState({
-            profileMediaViewerContent: ApplicationStore.profileMediaViewerContent
-        });
+        const { profileMediaViewerContent } = AppStore;
+
+        this.setState({ profileMediaViewerContent });
     };
 
     onClientUpdateForward = update => {
@@ -110,10 +157,10 @@ class MainPage extends React.Component {
         this.setState({ forwardInfo: info });
     };
 
-    handleSelectChat = (chatId, messageId = null, popup = false) => {
-        const currentChatId = ApplicationStore.getChatId();
-        const currentDialogChatId = ApplicationStore.dialogChatId;
-        const currentMessageId = ApplicationStore.getMessageId();
+    handleSelectChat = (chatId, messageId = null, popup = false, options = null) => {
+        const currentChatId = AppStore.getChatId();
+        const currentDialogChatId = AppStore.dialogChatId;
+        const currentMessageId = AppStore.getMessageId();
 
         if (popup) {
             if (currentDialogChatId !== chatId) {
@@ -126,20 +173,15 @@ class MainPage extends React.Component {
             return;
         }
 
-        if (currentChatId === chatId && messageId && currentMessageId === messageId) {
+        if (currentChatId === chatId && messageId && currentMessageId === messageId && !options) {
             this.dialogDetailsRef.current.scrollToMessage();
             if (messageId) {
                 highlightMessage(chatId, messageId);
             }
-        } else if (currentChatId === chatId && !messageId) {
-            const chat = ChatStore.get(chatId);
-            if (chat && chat.unread_count > 0) {
-                this.dialogDetailsRef.current.scrollToStart();
-            } else {
-                this.dialogDetailsRef.current.scrollToBottom();
-            }
+        } else if (currentChatId === chatId && !messageId && !options) {
+            this.dialogDetailsRef.current.scrollToStart();
         } else {
-            TdLibController.setChatId(chatId, messageId);
+            TdLibController.setChatId(chatId, messageId, options);
         }
     };
 
@@ -156,20 +198,37 @@ class MainPage extends React.Component {
     };
 
     render() {
-        const { classes } = this.props;
-        const { isChatDetailsVisible, mediaViewerContent, profileMediaViewerContent, forwardInfo } = this.state;
+        const {
+            instantViewContent,
+            isChatDetailsVisible,
+            mediaViewerContent,
+            profileMediaViewerContent,
+            forwardInfo,
+            videoInfo,
+            callId,
+            groupCallId,
+            isSmallWidth
+        } = this.state;
 
         return (
             <>
-                <div className={classNames(classes.page, 'page', { 'page-third-column': isChatDetailsVisible })}>
-                    <Dialogs onSelectChat={this.handleSelectChat} />
+                <div
+                    className={classNames('page', {
+                        'page-small': isSmallWidth,
+                        'page-third-column': isChatDetailsVisible
+                    })}>
+                    <Dialogs />
                     <DialogDetails ref={this.dialogDetailsRef} />
                     {isChatDetailsVisible && <ChatInfo />}
                 </div>
-                <Footer />
-                {mediaViewerContent && <MediaViewer {...mediaViewerContent} />}
-                {profileMediaViewerContent && <ProfileMediaViewer {...profileMediaViewerContent} />}
-                {forwardInfo && <ForwardDialog {...forwardInfo} />}
+                <Actions/>
+                {Boolean(instantViewContent) && <InstantViewer {...instantViewContent} />}
+                {Boolean(mediaViewerContent) && <MediaViewer {...mediaViewerContent} />}
+                {Boolean(profileMediaViewerContent) && <ProfileMediaViewer {...profileMediaViewerContent} />}
+                {Boolean(forwardInfo) && <ForwardDialog {...forwardInfo} />}
+                {Boolean(videoInfo) && <PipPlayer {...videoInfo}/>}
+                {Boolean(groupCallId) && <GroupCall groupCallId={groupCallId}/>}
+                {Boolean(callId) && <Call callId={callId}/>}
             </>
         );
     }
@@ -179,8 +238,6 @@ MainPage.propTypes = {};
 
 const enhance = compose(
     withLanguage,
-    withTheme,
-    withStyles(styles),
     withSnackbarNotifications
 );
 

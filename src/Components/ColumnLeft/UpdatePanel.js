@@ -6,37 +6,39 @@
  */
 
 import React from 'react';
-import withStyles from '@material-ui/core/styles/withStyles';
+import { withTranslation } from 'react-i18next';
 import Button from '@material-ui/core/Button';
-import ApplicationStore from '../../Stores/ApplicationStore';
-
-const styles = {
-    root: {
-        margin: 0,
-        padding: '24px',
-        width: '100%',
-        borderRadius: 0,
-        color: 'white',
-        maxHeight: '65px'
-    }
-};
+import DownloadIcon from '../../Assets/Icons/Download';
+import AppStore from '../../Stores/ApplicationStore';
+import './UpdatePanel.css';
 
 class UpdatePanel extends React.Component {
     constructor(props) {
         super(props);
 
+        const { isSmallWidth } = AppStore;
+
         this.state = {
-            newContentAvailable: false
+            newContentAvailable: false,
+            isSmallWidth
         };
     }
 
     componentDidMount() {
-        ApplicationStore.on('clientUpdateNewContentAvailable', this.onClientUpdateNewContentAvailable);
+        AppStore.on('clientUpdateNewContentAvailable', this.onClientUpdateNewContentAvailable);
+        AppStore.on('clientUpdatePageWidth', this.onClientUpdatePageWidth);
     }
 
     componentWillUnmount() {
-        ApplicationStore.removeListener('clientUpdateNewContentAvailable', this.onClientUpdateNewContentAvailable);
+        AppStore.off('clientUpdateNewContentAvailable', this.onClientUpdateNewContentAvailable);
+        AppStore.off('clientUpdatePageWidth', this.onClientUpdatePageWidth);
     }
+
+    onClientUpdatePageWidth = update => {
+        const { isSmallWidth } = update;
+
+        this.setState({ isSmallWidth });
+    };
 
     onClientUpdateNewContentAvailable = () => {
         this.setState({ newContentAvailable: true });
@@ -52,17 +54,19 @@ class UpdatePanel extends React.Component {
     };
 
     render() {
-        const { newContentAvailable } = this.state;
-        const { classes } = this.props;
+        const { newContentAvailable, isSmallWidth } = this.state;
+        const { t } = this.props;
 
-        const content = newContentAvailable ? (
-            <Button variant='contained' color='primary' className={classes.root} onClick={this.handleUpdate}>
-                Update
+        if (!newContentAvailable) {
+            return null;
+        }
+
+        return (
+            <Button className='update-button' variant='contained' color='primary' onClick={this.handleUpdate}>
+                {isSmallWidth ? <DownloadIcon/> : t('Update')}
             </Button>
-        ) : null;
-
-        return <>{content}</>;
+        );
     }
 }
 
-export default withStyles(styles)(UpdatePanel);
+export default withTranslation()(UpdatePanel);

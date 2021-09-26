@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { EventEmitter } from 'events';
+import EventEmitter from './EventEmitter';
 import OptionStore from '../Stores/OptionStore';
 import TdLibController from '../Controllers/TdLibController';
 
@@ -13,15 +13,31 @@ class UserStore extends EventEmitter {
     constructor() {
         super();
 
-        this.items = new Map();
-        this.fullInfoItems = new Map();
+        this.reset();
 
         this.addTdLibListener();
-        this.setMaxListeners(Infinity);
     }
+
+    reset = () => {
+        this.items = new Map();
+        this.fullInfoItems = new Map();
+    };
 
     onUpdate = update => {
         switch (update['@type']) {
+            case 'updateAuthorizationState': {
+                const { authorization_state } = update;
+                if (!authorization_state) break;
+
+                switch (authorization_state['@type']) {
+                    case 'authorizationStateClosed': {
+                        this.reset();
+                        break;
+                    }
+                }
+
+                break;
+            }
             case 'updateUser': {
                 this.set(update.user);
 
@@ -59,13 +75,13 @@ class UserStore extends EventEmitter {
     };
 
     addTdLibListener = () => {
-        TdLibController.addListener('update', this.onUpdate);
-        TdLibController.addListener('clientUpdate', this.onClientUpdate);
+        TdLibController.on('update', this.onUpdate);
+        TdLibController.on('clientUpdate', this.onClientUpdate);
     };
 
     removeTdLibListener = () => {
-        TdLibController.removeListener('update', this.onUpdate);
-        TdLibController.removeListener('clientUpdate', this.onClientUpdate);
+        TdLibController.off('update', this.onUpdate);
+        TdLibController.off('clientUpdate', this.onClientUpdate);
     };
 
     assign(source1, source2) {
@@ -78,7 +94,7 @@ class UserStore extends EventEmitter {
         if (!myId) return null;
         if (!myId.value) return null;
 
-        return myId.value;
+        return parseInt(myId.value, 10);
     }
 
     get(userId) {

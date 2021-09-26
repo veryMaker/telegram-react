@@ -6,34 +6,32 @@
  */
 
 import React from 'react';
-import withStyles from '@material-ui/core/styles/withStyles';
+import PropTypes from 'prop-types';
 import IconButton from '@material-ui/core/IconButton';
+import { PLAYER_PLAYBACKRATE_FAST, PLAYER_PLAYBACKRATE_NORMAL } from '../../Constants';
 import PlayerStore from '../../Stores/PlayerStore';
 import TdLibController from '../../Controllers/TdLibController';
-import { PLAYER_PLAYBACKRATE_FAST, PLAYER_PLAYBACKRATE_NORMAL } from '../../Constants';
 
-const styles = {
-    iconButton: {
-        padding: 4
-    }
-};
 class PlaybackRateButton extends React.Component {
     constructor(props) {
         super(props);
 
-        const { playbackRate } = PlayerStore;
+        const { audioPlaybackRate, playbackRate } = PlayerStore;
 
         this.state = {
+            audioPlaybackRate,
             playbackRate
         };
     }
 
     componentDidMount() {
         PlayerStore.on('clientUpdateMediaPlaybackRate', this.onClientUpdateMediaPlaybackRate);
+        PlayerStore.on('clientUpdateMediaAudioPlaybackRate', this.onClientUpdateMediaAudioPlaybackRate);
     }
 
     componentWillUnmount() {
-        PlayerStore.removeListener('clientUpdateMediaPlaybackRate', this.onClientUpdateMediaPlaybackRate);
+        PlayerStore.off('clientUpdateMediaPlaybackRate', this.onClientUpdateMediaPlaybackRate);
+        PlayerStore.off('clientUpdateMediaAudioPlaybackRate', this.onClientUpdateMediaAudioPlaybackRate);
     }
 
     onClientUpdateMediaPlaybackRate = update => {
@@ -42,26 +40,44 @@ class PlaybackRateButton extends React.Component {
         this.setState({ playbackRate });
     };
 
+    onClientUpdateMediaAudioPlaybackRate = update => {
+        const { audioPlaybackRate } = update;
+
+        this.setState({ audioPlaybackRate });
+    };
+
     handlePlaybackRate = () => {
-        const { playbackRate } = this.state;
+        const { audio } = this.props;
+        const { audioPlaybackRate, playbackRate } = this.state;
 
-        const nextPlaybackRate =
-            playbackRate === PLAYER_PLAYBACKRATE_NORMAL ? PLAYER_PLAYBACKRATE_FAST : PLAYER_PLAYBACKRATE_NORMAL;
+        const rate = audio ? audioPlaybackRate : playbackRate;
+        const nextRate = rate === PLAYER_PLAYBACKRATE_NORMAL
+            ? PLAYER_PLAYBACKRATE_FAST
+            : PLAYER_PLAYBACKRATE_NORMAL;
 
-        TdLibController.clientUpdate({
-            '@type': 'clientUpdateMediaPlaybackRate',
-            playbackRate: nextPlaybackRate
-        });
+        if (audio) {
+            TdLibController.clientUpdate({
+                '@type': 'clientUpdateMediaAudioPlaybackRate',
+                audioPlaybackRate: nextRate
+            });
+        } else {
+            TdLibController.clientUpdate({
+                '@type': 'clientUpdateMediaPlaybackRate',
+                playbackRate: nextRate
+            });
+        }
     };
 
     render() {
-        const { classes } = this.props;
-        const { playbackRate } = this.state;
+        const { audio } = this.props;
+        const { audioPlaybackRate, playbackRate } = this.state;
+
+        const rate = audio ? audioPlaybackRate : playbackRate;
 
         return (
             <IconButton
-                className={classes.iconButton}
-                color={playbackRate > PLAYER_PLAYBACKRATE_NORMAL ? 'primary' : 'default'}
+                className='header-player-button'
+                color={rate > PLAYER_PLAYBACKRATE_NORMAL ? 'primary' : 'default'}
                 onClick={this.handlePlaybackRate}>
                 <div className='header-player-playback-icon'>2X</div>
             </IconButton>
@@ -69,4 +85,12 @@ class PlaybackRateButton extends React.Component {
     }
 }
 
-export default withStyles(styles)(PlaybackRateButton);
+PlaybackRateButton.defaultProps = {
+    audio: false
+}
+
+PlaybackRateButton.propTypes = {
+    audio: PropTypes.bool
+}
+
+export default PlaybackRateButton;

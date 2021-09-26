@@ -8,82 +8,91 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import classNames from 'classnames';
-import withStyles from '@material-ui/core/styles/withStyles';
 import FileProgress from '../../Components/Viewer/FileProgress';
 import { getSrc } from '../../Utils/File';
 import FileStore from '../../Stores/FileStore';
 import './DocumentTile.css';
 
-const styles = theme => ({
-    background: {
-        background: theme.palette.primary.main,
-        borderRadius: '50%',
-        width: 48,
-        height: 48
-    }
-});
-
 class DocumentTile extends React.Component {
+    state = {
+        loaded: false
+    };
+
     componentDidMount() {
         FileStore.on('clientUpdateDocumentThumbnailBlob', this.onClientUpdateDocumentThumbnailBlob);
         FileStore.on('clientUpdateAudioThumbnailBlob', this.onClientUpdateDocumentThumbnailBlob);
     }
 
     componentWillUnmount() {
-        FileStore.removeListener('clientUpdateDocumentThumbnailBlob', this.onClientUpdateDocumentThumbnailBlob);
-        FileStore.removeListener('clientUpdateAudioThumbnailBlob', this.onClientUpdateDocumentThumbnailBlob);
+        FileStore.off('clientUpdateDocumentThumbnailBlob', this.onClientUpdateDocumentThumbnailBlob);
+        FileStore.off('clientUpdateAudioThumbnailBlob', this.onClientUpdateDocumentThumbnailBlob);
     }
 
     onClientUpdateDocumentThumbnailBlob = update => {
         const { thumbnail } = this.props;
+
         if (!thumbnail) return;
 
-        const file = thumbnail.photo;
+        const { file } = thumbnail;
         if (!file) return;
 
         const { fileId } = update;
 
-        if (file.id === fileId) {
-            this.forceUpdate();
+        if (file.id !== fileId) {
+            return;
         }
+
+        this.forceUpdate();
+    };
+
+    handleLoad = () => {
+        this.setState({ loaded: true });
     };
 
     render() {
-        const { classes, thumbnail, file, icon, completeIcon, openMedia } = this.props;
+        const { minithumbnail, thumbnail, file, icon, completeIcon, openMedia, streaming } = this.props;
+        const { loaded } = this.state;
 
-        const thumbnailSrc = getSrc(thumbnail ? thumbnail.photo : null);
-        const className = classNames('tile-photo', { 'document-tile-background': !thumbnailSrc });
+        const miniSrc = minithumbnail ? 'data:image/jpeg;base64, ' + minithumbnail.data : null;
+        const thumbnailSrc = getSrc(thumbnail ? thumbnail.file : null);
+        const tileLoaded = thumbnailSrc && loaded;
+        const src = thumbnailSrc || miniSrc;
 
         return (
-            <div className='document-tile' onClick={openMedia}>
-                {thumbnailSrc ? (
-                    <img className={className} src={thumbnailSrc} draggable={false} alt='' />
-                ) : (
-                    <div className={classes.background} />
-                )}
+            <div
+                className={classNames('document-tile', { 'document-tile-image': !src }, { pointer: openMedia })}
+                onClick={openMedia}>
                 {file && (
                     <FileProgress
                         file={file}
-                        thumbnailSrc={thumbnailSrc}
-                        download
+                        thumbnailSrc={src}
+                        download={!streaming}
                         upload
                         cancelButton
                         zIndex={1}
                         icon={icon}
-                        completeIcon={completeIcon}
+                        completeIcon={typeof completeIcon === 'function' ? completeIcon(src) : completeIcon}
                     />
                 )}
+                {miniSrc && <img className='tile-photo' src={miniSrc} draggable={false} alt=''/>}
+                {thumbnailSrc && <img className='tile-photo' src={thumbnailSrc} onLoad={this.handleLoad} draggable={false} alt='' />}
+                {!miniSrc && !tileLoaded && <div className='document-tile-background' />}
             </div>
         );
     }
 }
 
+DocumentTile.defaultProps = {
+    streaming: false
+};
+
 DocumentTile.propTypes = {
+    minithumbnail: PropTypes.object,
     thumbnail: PropTypes.object,
     file: PropTypes.object,
     openMedia: PropTypes.func,
     icon: PropTypes.node,
-    completeIcon: PropTypes.node
+    completeIcon: PropTypes.oneOfType([PropTypes.node, PropTypes.func])
 };
 
-export default withStyles(styles, { withTheme: true })(DocumentTile);
+export default DocumentTile;

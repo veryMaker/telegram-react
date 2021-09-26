@@ -6,23 +6,69 @@
  */
 
 import React from 'react';
-import InputBoxControl from './InputBoxControl';
+import { withTranslation } from 'react-i18next';
+import InputBox from './InputBox';
 import FooterCommand from './FooterCommand';
-import NotificationsCommandControl from './NotificationsCommandControl';
-import { hasBasicGroupId, hasSupergroupId } from '../../Utils/Chat';
-import ChatStore from '../../Stores/ChatStore';
+import NotificationsCommand from './NotificationsCommand';
+import { hasBasicGroupId, hasSupergroupId, isBotChat } from '../../Utils/Chat';
+import { sendBotStartMessage, unblockSender } from '../../Actions/Message';
+import AppStore from '../../Stores/ApplicationStore';
 import BasicGroupStore from '../../Stores/BasicGroupStore';
+import ChatStore from '../../Stores/ChatStore';
 import SupergroupStore from '../../Stores/SupergroupStore';
 import TdLibController from '../../Controllers/TdLibController';
 import './Footer.css';
 
 class Footer extends React.Component {
-    constructor(props) {
-        super(props);
+    state = { };
+
+    static getDerivedStateFromProps(props, state) {
+        const { chatId } = props;
+        const { prevChatId } = state;
+
+        if (prevChatId !== chatId) {
+            const chat = ChatStore.get(chatId);
+            if (chat) {
+                const { is_blocked, last_message } = chat;
+
+                return {
+                    prevChatId: chatId,
+
+                    isBlocked: is_blocked,
+                    hasLastMessage: Boolean(last_message)
+                };
+            }
+        }
+
+        return null;
     }
 
     shouldComponentUpdate(nextProps, nextState) {
-        if (nextProps.chatId !== this.props.chatId) {
+        const { t, chatId, options } = this.props;
+        const { hasLastMessage, isBlocked, clearHistory } = this.state;
+
+        if (nextProps.chatId !== chatId) {
+            return true;
+        }
+
+        if (nextProps.options !== options) {
+            return true;
+        }
+
+
+        if (nextProps.t !== t) {
+            return true;
+        }
+
+        if (nextState.hasLastMessage !== hasLastMessage) {
+            return true;
+        }
+
+        if (nextState.isBlocked !== isBlocked) {
+            return true;
+        }
+
+        if (nextState.clearHistory !== clearHistory) {
             return true;
         }
 
@@ -31,13 +77,51 @@ class Footer extends React.Component {
 
     componentDidMount() {
         BasicGroupStore.on('updateBasicGroup', this.onUpdateBasicGroup);
+        ChatStore.on('clientUpdateClearHistory', this.onClientUpdateClearHistory);
+        ChatStore.on('updateChatIsBlocked', this.onUpdateChatIsBlocked);
+        ChatStore.on('updateChatLastMessage', this.onUpdateChatLastMessage);
         SupergroupStore.on('updateSupergroup', this.onUpdateSupergroup);
     }
 
     componentWillUnmount() {
-        BasicGroupStore.removeListener('updateBasicGroup', this.onUpdateBasicGroup);
-        SupergroupStore.removeListener('updateSupergroup', this.onUpdateSupergroup);
+        BasicGroupStore.off('updateBasicGroup', this.onUpdateBasicGroup);
+        ChatStore.off('clientUpdateClearHistory', this.onClientUpdateClearHistory);
+        ChatStore.off('updateChatIsBlocked', this.onUpdateChatIsBlocked);
+        ChatStore.off('updateChatLastMessage', this.onUpdateChatLastMessage);
+        SupergroupStore.off('updateSupergroup', this.onUpdateSupergroup);
     }
+
+    onClientUpdateClearHistory = update => {
+        const { chatId } = this.props;
+
+        if (chatId !== update.chatId) return;
+
+        this.setState({
+            clearHistory: update.inProgress
+        });
+    };
+
+    onUpdateChatLastMessage = update => {
+        const { chat_id, last_message } = update;
+        const { chatId } = this.props;
+
+        if (chat_id !== chatId) return;
+
+        this.setState({
+            hasLastMessage: Boolean(last_message)
+        });
+    };
+
+    onUpdateChatIsBlocked = update => {
+        const { chat_id, is_blocked } = update;
+        const { chatId } = this.props;
+
+        if (chat_id !== chatId) return;
+
+        this.setState({
+            isBlocked: is_blocked
+        });
+    };
 
     onUpdateBasicGroup = update => {
         const { chatId } = this.props;
@@ -82,87 +166,149 @@ class Footer extends React.Component {
         //     });
     };
 
-    render() {
+    handleUnblock = () => {
         const { chatId } = this.props;
+
+        unblockSender({ '@type': 'messageSenderChat', chat_id: chatId });
+    };
+
+    handleStartBot = async () => {
+        const { chatId, options } = this.props;
+
+        await AppStore.invokeScheduledAction(`clientUpdateClearHistory chatId=${chatId}`);
+        if (options && options.botStartMessage) {
+            const { botUserId, parameter } = options.botStartMessage;
+
+            await sendBotStartMessage(chatId, botUserId, parameter);
+        } else {
+            await TdLibController.send({
+                '@type': 'sendMessage',
+                chat_id: chatId,
+                reply_to_message_id: 0,
+                input_message_content: {
+                    '@type': 'inputMessageText',
+                    text: {
+                        '@type': 'formattedText',
+                        text: '/start',
+                        entities: []
+                    },
+                    disable_web_page_preview: true,
+                    clear_draft: true
+                }
+            });
+        }
+    };
+
+    render() {
+        const { chatId, options, t } = this.props;
+        const { hasLastMessage, clearHistory } = this.state;
+
         const chat = ChatStore.get(chatId);
         if (!chat) return null;
-        if (!chat.type) return null;
 
-        switch (chat.type['@type']) {
+        const { type, is_blocked } = chat;
+        if (!type) return null;
+
+        if (is_blocked) {
+            return <FooterCommand command={t('Unblock')} onCommand={this.handleUnblock} />;
+        }
+
+        if (options && options.botStartMessage) {
+            const isBot = isBotChat(chatId);
+            if (isBot) {
+                return <FooterCommand command={t('BotStart')} onCommand={this.handleStartBot} />;
+            }
+        }
+
+        switch (type['@type']) {
             case 'chatTypeBasicGroup': {
-                const basicGroup = BasicGroupStore.get(chat.type.basic_group_id);
-                if (basicGroup && basicGroup.status) {
-                    switch (basicGroup.status['@type']) {
-                        case 'chatMemberStatusAdministrator': {
-                            return <InputBoxControl />;
-                        }
-                        case 'chatMemberStatusBanned': {
-                            return <FooterCommand command='delete and exit' onCommand={this.handleDeleteAndExit} />;
-                        }
-                        case 'chatMemberStatusCreator': {
-                            return <InputBoxControl />;
-                        }
-                        case 'chatMemberStatusLeft': {
-                            return null;
-                        }
-                        case 'chatMemberStatusMember': {
-                            return <InputBoxControl />;
-                        }
-                        case 'chatMemberStatusRestricted': {
-                            if (basicGroup.status.is_member) {
-                                if (!basicGroup.status.can_send_messages) {
-                                    return null;
-                                }
+                const basicGroup = BasicGroupStore.get(type.basic_group_id);
+                if (!basicGroup) return null;
 
-                                return <InputBoxControl />;
-                            } else {
-                                return <FooterCommand command='join' onCommand={this.handleJoin} />;
-                            }
+                const { status } = basicGroup;
+                if (!status) return null;
+
+                const { is_member, permissions } = status;
+
+                switch (status['@type']) {
+                    case 'chatMemberStatusAdministrator': {
+                        return <InputBox />;
+                    }
+                    case 'chatMemberStatusBanned': {
+                        return <FooterCommand command={t('DeleteChat')} onCommand={this.handleDeleteAndExit} />;
+                    }
+                    case 'chatMemberStatusCreator': {
+                        return is_member ? <InputBox /> : <FooterCommand command={t('JoinGroup')} onCommand={this.handleJoin} />;
+                    }
+                    case 'chatMemberStatusLeft': {
+                        return null;
+                    }
+                    case 'chatMemberStatusMember': {
+                        return <InputBox />;
+                    }
+                    case 'chatMemberStatusRestricted': {
+                        if (is_member) {
+                            return permissions && permissions.can_send_messages ? <InputBox /> : null;
+                        } else {
+                            return <FooterCommand command={t('JoinGroup')} onCommand={this.handleJoin} />;
                         }
                     }
                 }
-
                 break;
             }
+            case 'chatTypeSecret':
             case 'chatTypePrivate': {
-                return <InputBoxControl />;
-            }
-            case 'chatTypeSecret': {
-                return <InputBoxControl />;
+                const isBot = isBotChat(chatId);
+                if (isBot && (!hasLastMessage || clearHistory)) {
+                    return <FooterCommand command={t('BotStart')} onCommand={this.handleStartBot} />;
+                }
+
+                return <InputBox />;
             }
             case 'chatTypeSupergroup': {
-                const supergroup = SupergroupStore.get(chat.type.supergroup_id);
-                if (supergroup && supergroup.status) {
-                    switch (supergroup.status['@type']) {
-                        case 'chatMemberStatusAdministrator': {
-                            return <InputBoxControl />;
-                        }
-                        case 'chatMemberStatusBanned': {
-                            return <FooterCommand command='delete and exit' onCommand={this.handleDeleteAndExit} />;
-                        }
-                        case 'chatMemberStatusCreator': {
-                            return <InputBoxControl />;
-                        }
-                        case 'chatMemberStatusLeft': {
-                            return <FooterCommand command='join' onCommand={this.handleJoin} />;
-                        }
-                        case 'chatMemberStatusMember': {
-                            if (supergroup.is_channel) {
-                                return <NotificationsCommandControl chatId={chatId} />;
-                            } else {
-                                return <InputBoxControl />;
-                            }
-                        }
-                        case 'chatMemberStatusRestricted': {
-                            if (supergroup.status.is_member) {
-                                if (!supergroup.status.can_send_messages) {
-                                    return null;
-                                }
+                const supergroup = SupergroupStore.get(type.supergroup_id);
+                if (!supergroup) return null;
 
-                                return <InputBoxControl />;
-                            } else {
-                                return <FooterCommand command='join' onCommand={this.handleJoin} />;
-                            }
+                const { is_channel, status } = supergroup;
+                if (!status) return null;
+
+                const { is_member, permissions } = status;
+
+                switch (status['@type']) {
+                    case 'chatMemberStatusAdministrator': {
+                        return <InputBox />;
+                    }
+                    case 'chatMemberStatusBanned': {
+                        return <FooterCommand command={t('DeleteChat')} onCommand={this.handleDeleteAndExit} />;
+                    }
+                    case 'chatMemberStatusCreator': {
+                        return is_member ? <InputBox /> : <FooterCommand command={is_channel ? t('ChannelJoin') : t('JoinGroup')} onCommand={this.handleJoin} />;
+                    }
+                    case 'chatMemberStatusLeft': {
+                        return (
+                            <FooterCommand
+                                command={is_channel ? t('ChannelJoin') : t('JoinGroup')}
+                                onCommand={this.handleJoin}
+                            />
+                        );
+                    }
+                    case 'chatMemberStatusMember': {
+                        if (is_channel) {
+                            return <NotificationsCommand chatId={chatId} />;
+                        } else {
+                            return <InputBox />;
+                        }
+                    }
+                    case 'chatMemberStatusRestricted': {
+                        if (is_member) {
+                            return permissions && permissions.can_send_messages ? <InputBox /> : null;
+                        } else {
+                            return (
+                                <FooterCommand
+                                    command={is_channel ? t('ChannelJoin') : t('JoinGroup')}
+                                    onCommand={this.handleJoin}
+                                />
+                            );
                         }
                     }
                 }
@@ -173,4 +319,4 @@ class Footer extends React.Component {
     }
 }
 
-export default Footer;
+export default withTranslation()(Footer);

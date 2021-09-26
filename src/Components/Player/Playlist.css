@@ -7,14 +7,14 @@
 
 .playlist {
     position: relative;
-    top: 22px;
+    top: 21px;
     box-sizing: border-box;
-    z-index: 2;
+    /*z-index: 2;*/
 }
 
 .playlist-wrapper {
-    border-width: 1px;
-    border-style: solid;
+    border: 1px solid var(--border);
+    background: var(--panel-background);
     position: absolute;
 }
 

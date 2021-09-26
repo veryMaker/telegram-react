@@ -5,15 +5,18 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+.chat-info {
+    border-left: 1px solid var(--border);
+    background: var(--panel-background);
+}
+
 .right-column {
-    float: left;
-    width: calc(26.7% - 0px);
+    position: relative;
+    max-width: 25%;
+    flex: 1 1 25%;
     margin: 0;
     box-sizing: border-box;
-    border-left-width: 1px;
-    border-left-style: solid;
     height: 100%;
-    min-width: 160px;
     display: flex;
     flex-direction: column;
 }

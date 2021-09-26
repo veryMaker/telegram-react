@@ -7,48 +7,37 @@
 
 import React from 'react';
 import PropTypes from 'prop-types';
+import classNames from 'classnames';
 import { withTranslation } from 'react-i18next';
-import CloseIcon from '@material-ui/icons/Close';
-import NavigateNextIcon from '@material-ui/icons/NavigateNext';
-import NavigateBeforeIcon from '@material-ui/icons/NavigateBefore';
-import ReplyIcon from '@material-ui/icons/Reply';
-import DeleteIcon from '@material-ui/icons/Delete';
+import KeyboardManager, { KeyboardHandler } from '../Additional/KeyboardManager';
+import CloseIcon from '../../Assets/Icons/Close';
+import NavigateBeforeIcon from '../../Assets/Icons/Left';
+import ReplyIcon from '../../Assets/Icons/Share';
+import DeleteIcon from '../../Assets/Icons/Delete';
 import MediaViewerDownloadButton from './MediaViewerDownloadButton';
 import MediaViewerButton from './MediaViewerButton';
 import MediaViewerFooterText from './MediaViewerFooterText';
 import MediaViewerFooterButton from './MediaViewerFooterButton';
 import ProfileMediaViewerContent from './ProfileMediaViewerContent';
-import ProfileMediaViewerControl from '../Tile/ProfileMediaViewerControl';
-import { getPhotoFromChat, getChatUserId, isPrivateChat } from '../../Utils/Chat';
+import ProfileMediaInfo from '../Tile/ProfileMediaInfo';
+import { forward, setProfileMediaViewerContent } from '../../Actions/Client';
+import { getPhotoFromChat, getChatUserId, isPrivateChat, isMeChat } from '../../Utils/Chat';
 import { getProfilePhotoDateHint, getProfilePhoto } from '../../Utils/User';
 import { loadProfileMediaViewerContent, preloadProfileMediaViewerContent, saveOrDownload } from '../../Utils/File';
-import ApplicationStore from '../../Stores/ApplicationStore';
-import FileStore from '../../Stores/FileStore';
+import { modalManager } from '../../Utils/Modal';
+import { PROFILE_PHOTO_BIG_SIZE } from '../../Constants';
 import ChatStore from '../../Stores/ChatStore';
+import FileStore from '../../Stores/FileStore';
+import LStore from '../../Stores/LocalizationStore';
 import TdLibController from '../../Controllers/TdLibController';
 import './ProfileMediaViewer.css';
-
-const forwardIconStyle = {
-    padding: 20,
-    color: 'white',
-    transform: 'scaleX(-1)'
-};
-
-const deleteIconStyle = {
-    padding: 20,
-    color: 'white'
-};
-
-const navigationIconStyle = {
-    padding: 35,
-    color: 'white'
-};
 
 class ProfileMediaViewer extends React.Component {
     constructor(props) {
         super(props);
 
         this.history = [];
+        this.keyboardHandler = new KeyboardHandler(this.handleKeyDown);
 
         const { chatId, fileId } = this.props;
 
@@ -113,25 +102,43 @@ class ProfileMediaViewer extends React.Component {
         const photo = getPhotoFromChat(chatId);
         loadProfileMediaViewerContent(chatId, [photo]);
 
-        this.loadHistory();
+        this.loadHistory(photo);
 
-        document.addEventListener('keydown', this.onKeyDown, false);
+        KeyboardManager.add(this.keyboardHandler);
     }
 
     componentWillUnmount() {
-        document.removeEventListener('keydown', this.onKeyDown, false);
+        KeyboardManager.remove(this.keyboardHandler);
     }
 
-    onKeyDown = event => {
-        if (event.keyCode === 27) {
-            const { deleteConfirmationOpened } = this.state;
-            if (deleteConfirmationOpened) return;
+    handleKeyDown = event => {
+        if (modalManager.modals.length > 0) {
+            return;
+        }
 
-            this.handleClose();
-        } else if (event.keyCode === 39) {
-            this.handlePrevious();
-        } else if (event.keyCode === 37) {
-            this.handleNext();
+        if (event.isComposing) {
+            return;
+        }
+
+        switch (event.key) {
+            case 'Escape': {
+                this.handleClose();
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
+            case 'ArrowLeft': {
+                this.handleNext();
+                event.stopPropagation();
+                event.preventDefault();
+                return;
+            }
+            case 'ArrowRight': {
+                this.handlePrevious();
+                event.stopPropagation();
+                event.preventDefault();
+                return;
+            }
         }
     };
 
@@ -163,7 +170,7 @@ class ProfileMediaViewer extends React.Component {
     };
 
     handleClose = () => {
-        ApplicationStore.setProfileMediaViewerContent(null);
+        setProfileMediaViewerContent(null);
     };
 
     handleSave = () => {
@@ -191,8 +198,6 @@ class ProfileMediaViewer extends React.Component {
 
     handleForward = () => {
         const { chatId } = this.props;
-        if (!isPrivateChat(chatId)) return;
-
         const { currentIndex, totalCount } = this.state;
 
         let index = -1;
@@ -200,48 +205,110 @@ class ProfileMediaViewer extends React.Component {
             index = currentIndex;
         }
 
-        if (index < 0 || index >= this.history.length) return;
-        const photo = getProfilePhoto(this.history[index]);
-        if (!photo) return;
+        let inputFile = null;
+        let inputMessagePhoto = null;
+        const inHistory = this.history && index >= 0 && index < this.history.length;
+        if (inHistory) {
+            const photo = getProfilePhoto(this.history[index]);
+            if (!photo) return;
 
-        let { big: file } = photo;
-        file = FileStore.get(file.id) || file;
-        if (!file) return;
+            let { big: file } = photo;
+            if (!file) return;
 
-        const photoSize = {
-            '@type': 'photoSize',
-            type: 'c',
-            photo: file,
-            width: 640,
-            height: 640
+            inputFile = {
+                '@type': 'inputFileId',
+                id: file.id
+            };
+        } else {
+            const chatPhoto = getPhotoFromChat(chatId);
+            if (!chatPhoto) return;
+
+            const { big: file } = chatPhoto;
+            if (!file) return;
+
+            const blob = FileStore.getBlob(file.id);
+            if (!blob) return;
+
+            inputFile = {
+                '@type': 'inputFileBlob',
+                data: blob,
+                name: ''
+            };
+        }
+
+        if (!inputFile) return;
+
+        const inputMessageContent = {
+            '@type': 'inputMessagePhoto',
+            photo: inputFile,
+            thumbnail: null,
+            added_sticker_file_ids: [],
+            width: PROFILE_PHOTO_BIG_SIZE,
+            height: PROFILE_PHOTO_BIG_SIZE,
+            caption: {
+                '@type': 'formattedText',
+                text: '',
+                entities: null
+            },
+            ttl: 0
         };
 
-        TdLibController.clientUpdate({
-            '@type': 'clientUpdateForward',
-            info: { photoSize }
-        });
+        forward(inputMessageContent);
     };
 
-    handleDelete = () => {
-        const { chatId, messageId } = this.props;
-        const { currentIndex, totalCount } = this.state;
+    handleDelete = async () => {
+        const { chatId } = this.props;
+        const {
+            currentIndex,
+            totalCount,
+            hasNextMedia,
+            hasPreviousMedia
+        } = this.state;
 
         let index = -1;
         if (totalCount) {
             index = currentIndex;
         }
 
-        const photo =
-            index > 0 && index < this.history.length ? getProfilePhoto(this.history[index]) : getPhotoFromChat(chatId);
+        const photo = index > 0 && index < this.history.length ? getProfilePhoto(this.history[index]) : getPhotoFromChat(chatId);
+        if (!photo) return;
 
-        if (photo) {
-            let file = photo.big;
-            file = FileStore.get(file.id) || file;
-            if (file) {
-                const store = FileStore.getReadWriteStore();
+        const { id } = photo;
+        if (!id) return;
 
-                FileStore.deleteLocalFile(store, file);
-            }
+        await TdLibController.send({
+            '@type': 'deleteProfilePhoto',
+            profile_photo_id: id
+        });
+
+        this.history.splice(index, 1);
+        if (!this.history.length) {
+            this.handleClose();
+            return;
+        }
+
+        this.setState({
+            totalCount: totalCount - 1
+        });
+
+        if (hasNextMedia) {
+            const nextIndex = currentIndex - 1;
+
+            return this.loadMedia(nextIndex, { totalCount: totalCount - 1 }, () => {
+                if (nextIndex === 0) {
+                    this.loadNext();
+                }
+            });
+        }
+
+        if (hasPreviousMedia) {
+            const nextIndex = currentIndex;
+
+            return this.loadMedia(nextIndex, { totalCount: totalCount - 1 }, () => {
+                if (nextIndex === this.history.length - 1) {
+                    this.loadPrevious();
+                }
+            });
         }
     };
 
@@ -260,7 +327,7 @@ class ProfileMediaViewer extends React.Component {
         const { currentIndex } = this.state;
         const nextIndex = currentIndex + 1;
 
-        return this.loadMedia(nextIndex, () => {
+        return this.loadMedia(nextIndex, { }, () => {
             if (nextIndex === this.history.length - 1) {
                 this.loadPrevious();
             }
@@ -286,7 +353,7 @@ class ProfileMediaViewer extends React.Component {
         const { currentIndex } = this.state;
         const nextIndex = currentIndex - 1;
 
-        return this.loadMedia(nextIndex, () => {
+        return this.loadMedia(nextIndex, { }, () => {
             if (nextIndex === 0) {
                 this.loadNext();
             }
@@ -297,13 +364,14 @@ class ProfileMediaViewer extends React.Component {
         return;
     };
 
-    loadMedia = (index, callback) => {
+    loadMedia = (index, obj, callback) => {
         if (index < 0) return false;
         if (index >= this.history.length) return false;
 
         this.setState(
             {
                 currentIndex: index,
+                ...obj,
                 hasNextMedia: this.hasNextMedia(index),
                 hasPreviousMedia: this.hasPreviousMedia(index)
             },
@@ -322,10 +390,7 @@ class ProfileMediaViewer extends React.Component {
             currentIndex,
             hasNextMedia,
             hasPreviousMedia,
-            firstSliceLoaded,
             totalCount,
-            deleteConfirmationOpened,
-            deleteForAll
         } = this.state;
 
         let index = -1;
@@ -333,54 +398,53 @@ class ProfileMediaViewer extends React.Component {
             index = currentIndex;
         }
 
-        const deleteConfirmation = null;
         const inHistory = index >= 0 && index < this.history.length;
-        const photo = inHistory ? getProfilePhoto(this.history[index]) : getPhotoFromChat(chatId);
+        const profilePhoto = inHistory ? getProfilePhoto(this.history[index]) : null;
+        const profilePhotoBig = profilePhoto ? profilePhoto.big : null;
+        const profilePhotoBlob = profilePhotoBig ? profilePhotoBig.blob || FileStore.getBlob(profilePhotoBig.id) : null;
+        const photo = profilePhotoBlob ? profilePhoto : getPhotoFromChat(chatId);
         const userProfilePhoto = inHistory ? this.history[index] : null;
         const { big: file } = photo;
+        const isMe = isMeChat(chatId);
 
         return (
-            <div className='media-viewer'>
-                {deleteConfirmation}
+            <div className={classNames('media-viewer', 'media-viewer-default')}>
+                <div className='media-viewer-footer'>
+                    <ProfileMediaInfo chatId={chatId} date={getProfilePhotoDateHint(userProfilePhoto)}/>
+                    <MediaViewerFooterText
+                        title={t('AttachPhoto')}
+                        subtitle={totalCount > 1 && index >= 0 ? LStore.formatString('Of', index + 1, totalCount) : null}
+                    />
+                    <div style={{ width: 64 }}/>
+                    <MediaViewerDownloadButton title={t('Save')} fileId={file.id} onClick={this.handleSave} />
+                    <MediaViewerDownloadButton title={t('Forward')} fileId={file.id} onClick={this.handleForward}>
+                        <ReplyIcon />
+                    </MediaViewerDownloadButton>
+                    {isMe && (
+                        <MediaViewerFooterButton title={t('Delete')} onClick={this.handleDelete}>
+                            <DeleteIcon />
+                        </MediaViewerFooterButton>
+                    )}
+                    <MediaViewerFooterButton title={t('Close')} onClick={this.handleClose}>
+                        <CloseIcon />
+                    </MediaViewerFooterButton>
+                </div>
                 <div className='media-viewer-wrapper' onClick={this.handlePrevious}>
                     <div className='media-viewer-left-column'>
-                        <div className='media-viewer-button-placeholder' />
                         <MediaViewerButton disabled={!hasNextMedia} grow onClick={this.handleNext}>
-                            <NavigateBeforeIcon fontSize='large' style={navigationIconStyle} />
+                            <NavigateBeforeIcon />
                         </MediaViewerButton>
                     </div>
 
                     <div className='media-viewer-content-column'>
-                        <ProfileMediaViewerContent chatId={chatId} photo={photo} onClick={this.handlePrevious} />
+                        <ProfileMediaViewerContent chatId={chatId} photo={photo} onClose={this.handleClose} onPrevious={this.handlePrevious}/>
                     </div>
 
                     <div className='media-viewer-right-column'>
-                        <MediaViewerButton onClick={this.handleClose}>
-                            <CloseIcon fontSize='large' style={navigationIconStyle} />
-                        </MediaViewerButton>
                         <MediaViewerButton disabled={!hasPreviousMedia} grow onClick={this.handlePrevious}>
-                            <NavigateNextIcon fontSize='large' style={navigationIconStyle} />
+                            <NavigateBeforeIcon style={{ transform: 'rotate(180deg)' }} />
                         </MediaViewerButton>
                     </div>
-                </div>
-                <div className='media-viewer-footer'>
-                    <ProfileMediaViewerControl chatId={chatId} date={getProfilePhotoDateHint(userProfilePhoto)} />
-                    <MediaViewerFooterText
-                        title={t('AttachPhoto')}
-                        subtitle={totalCount && index >= 0 ? `${index + 1} of ${totalCount}` : null}
-                    />
-                    <MediaViewerDownloadButton title={t('Save')} fileId={file.id} onClick={this.handleSave} />
-                    {isPrivateChat(chatId) && (
-                        <MediaViewerFooterButton
-                            title={t('Forward')}
-                            disabled={!inHistory}
-                            onClick={this.handleForward}>
-                            <ReplyIcon style={forwardIconStyle} />
-                        </MediaViewerFooterButton>
-                    )}
-                    <MediaViewerFooterButton title={t('Delete')} disabled onClick={this.handleDelete}>
-                        <DeleteIcon style={deleteIconStyle} />
-                    </MediaViewerFooterButton>
                 </div>
             </div>
         );

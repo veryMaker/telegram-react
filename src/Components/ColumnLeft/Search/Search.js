@@ -7,108 +7,97 @@
 
 import React from 'react';
 import PropTypes from 'prop-types';
-import classNames from 'classnames';
-import { compose } from 'recompose';
 import { withTranslation } from 'react-i18next';
-import withStyles from '@material-ui/core/styles/withStyles';
-import CloseIcon from '@material-ui/icons/Close';
+import KeyboardManager, { KeyboardHandler } from '../../Additional/KeyboardManager';
+import CloseIcon from '../../../Assets/Icons/Close';
 import IconButton from '@material-ui/core/IconButton';
-import ChatControl from '../../Tile/ChatControl';
+import Chat from '../../Tile/Chat';
 import TopChat from '../../Tile/TopChat';
 import RecentlyFoundChat from '../../Tile/RecentlyFoundChat';
 import FoundPublicChat from '../../Tile/FoundPublicChat';
 import FoundMessage from '../../Tile/FoundMessage';
-import SearchCaption from './SearchCaption';
+import SectionHeader from '../SectionHeader';
 import { loadChatsContent, loadUsersContent } from '../../../Utils/File';
-import { filterMessages } from '../../../Utils/Message';
+import { filterDuplicateMessages } from '../../../Utils/Message';
 import { getCyrillicInput, getLatinInput } from '../../../Utils/Language';
 import { orderCompare } from '../../../Utils/Common';
-import { USERNAME_LENGTH_MIN } from '../../../Constants';
-import MessageStore from '../../../Stores/MessageStore';
-import FileStore from '../../../Stores/FileStore';
+import { getChatOrder } from '../../../Utils/Chat';
+import { modalManager } from '../../../Utils/Modal';
+import { SCROLL_PRECISION, SEARCH_GLOBAL_TEXT_MIN, USERNAME_LENGTH_MIN } from '../../../Constants';
 import ChatStore from '../../../Stores/ChatStore';
+import FileStore from '../../../Stores/FileStore';
+import MessageStore from '../../../Stores/MessageStore';
 import UserStore from '../../../Stores/UserStore';
-import ApplicationStore from '../../../Stores/ApplicationStore';
 import TdLibController from '../../../Controllers/TdLibController';
 import './Search.css';
-
-const styles = theme => ({
-    closeSearchIconButton: {
-        margin: '8px 12px 8px 0'
-    },
-    listItem: {
-        padding: '0px'
-    },
-    search: {
-        background: theme.palette.type === 'dark' ? theme.palette.background.default : '#FFFFFF'
-    }
-});
 
 class Search extends React.Component {
     constructor(props) {
         super(props);
 
+        this.keyboardHandler = new KeyboardHandler(this.handleKeyDown);
         this.listRef = React.createRef();
-
-        const { chatId, text } = this.props;
-
-        this.state = {
-            prevPropsChatId: chatId,
-            prevPropsText: text,
-
-            top: null,
-            recentlyFound: null,
-            local: null,
-            global: null,
-            messages: null
-        };
-    }
-
-    static getDerivedStateFromProps(props, state) {
-        if (props.chatId !== state.prevPropsChatId || props.text !== state.prevPropsText) {
-            return {
-                prevPropsChatId: props.chatId,
-                prevPropsText: props.text,
-
-                top: null,
-                recentlyFound: null,
-                local: null,
-                global: null,
-                messages: null
-            };
-        }
-
-        return null;
+        this.state = {};
     }
 
     componentDidMount() {
-        this.loadContent();
+        const { text } = this.props;
 
-        ApplicationStore.on('clientUpdateSearchText', this.onClientUpdateSearchText);
+        this.searchOrLoadContent(text);
+
+        KeyboardManager.add(this.keyboardHandler);
     }
 
     componentWillUnmount() {
-        ApplicationStore.removeListener('clientUpdateSearchText', this.onClientUpdateSearchText);
+        KeyboardManager.remove(this.keyboardHandler);
     }
 
-    onClientUpdateSearchText = update => {
-        const { text } = update;
+    handleKeyDown = event => {
+        if (modalManager.modals.length > 0) {
+            return;
+        }
 
-        const trimmedText = text.trim();
+        if (event.isComposing) {
+            return;
+        }
+
+        switch (event.key) {
+            case 'Escape':
+                event.preventDefault();
+                event.stopPropagation();
+                event.target.blur();
+
+                this.handleClose();
+                break;
+        }
+    };
+
+    componentDidUpdate(prevProps, prevState, snapshot) {
+        const { chatId, text } = this.props;
+
+        if (prevProps.text !== text) {
+            this.searchOrLoadContent(text);
+        } else if (prevProps.chatId !== chatId) {
+            this.searchOrLoadContent(text);
+        }
+    }
+
+    searchOrLoadContent(text) {
+        const trimmedText = text ? text.trim() : '';
 
         if (!trimmedText) {
             this.loadContent();
         } else {
             this.searchText(trimmedText);
         }
-    };
+    }
 
     concatSearchResults = results => {
         const arr = [];
         const map = new Map();
 
-        for (let i = 0; i < results.length; i++) {
-            let result = results[i].chat_ids;
+            for (let i = 0; i < results.length; i++) {
+            let result = results[i] && results[i].chat_ids;
             if (result) {
                 for (let j = 0; j < result.length; j++) {
                     if (!map.has(result[j])) {
@@ -120,7 +109,7 @@ class Search extends React.Component {
         }
 
         arr.sort((a, b) => {
-            return orderCompare(ChatStore.get(b).order, ChatStore.get(a).order);
+            return orderCompare(getChatOrder(b), getChatOrder(a));
         });
 
         return arr;
@@ -131,6 +120,8 @@ class Search extends React.Component {
         this.text = text;
         const sessionId = this.sessionId;
         let store = null;
+
+        // console.log('[se] searchText=' + text);
 
         const { chatId } = this.props;
         const { savedMessages } = this.state;
@@ -145,7 +136,7 @@ class Search extends React.Component {
             promises.push(localPromise);
 
             const latinText = getLatinInput(text);
-            if (latinText) {
+            if (latinText && latinText !== text) {
                 const latinLocalPromise = TdLibController.send({
                     '@type': 'searchChats',
                     query: latinText,
@@ -155,7 +146,7 @@ class Search extends React.Component {
             }
 
             const cyrillicText = getCyrillicInput(text);
-            if (cyrillicText) {
+            if (cyrillicText && cyrillicText !== text) {
                 const cyrillicLocalPromise = TdLibController.send({
                     '@type': 'searchChats',
                     query: cyrillicText,
@@ -188,29 +179,35 @@ class Search extends React.Component {
             this.setState({
                 top: null,
                 recentlyFound: null,
-                local: local,
-                global: null,
-                messages: null
+                local: local
             });
 
             store = FileStore.getStore();
             loadChatsContent(store, local);
 
-            if (text.length >= USERNAME_LENGTH_MIN) {
+            let trimmedText = text.trim();
+            trimmedText = trimmedText.startsWith('@') ? trimmedText.substr(1) : trimmedText;
+            if (trimmedText.length >= SEARCH_GLOBAL_TEXT_MIN) {
+                trimmedText = trimmedText.length === SEARCH_GLOBAL_TEXT_MIN ? trimmedText + '.' : trimmedText;
+
                 const globalPromises = [];
 
                 const globalPromise = TdLibController.send({
                     '@type': 'searchPublicChats',
-                    query: text
+                    query: trimmedText
                 });
                 globalPromises.push(globalPromise);
 
                 if (latinText) {
-                    const globalLatinPromise = TdLibController.send({
-                        '@type': 'searchPublicChats',
-                        query: latinText
-                    });
-                    globalPromises.push(globalLatinPromise);
+                    let latinTrimmedText = latinText.trim();
+                    latinTrimmedText = latinTrimmedText.startsWith('@') ? latinTrimmedText.substr(1) : latinTrimmedText;
+                    if (latinTrimmedText.length >= USERNAME_LENGTH_MIN && latinTrimmedText !== trimmedText) {
+                        const globalLatinPromise = TdLibController.send({
+                            '@type': 'searchPublicChats',
+                            query: latinTrimmedText
+                        });
+                        globalPromises.push(globalLatinPromise);
+                    }
                 }
 
                 const globalResults = await Promise.all(globalPromises.map(x => x.catch(e => null)));
@@ -221,11 +218,15 @@ class Search extends React.Component {
                 }
 
                 this.setState({
-                    global: global
+                    global
                 });
 
                 store = FileStore.getStore();
                 loadChatsContent(store, global);
+            } else {
+                this.setState({
+                    global: null
+                });
             }
         }
 
@@ -244,6 +245,7 @@ class Search extends React.Component {
         } else {
             messages = await TdLibController.send({
                 '@type': 'searchMessages',
+                chat_list: { '@type': 'chatListMain' },
                 query: text,
                 offset_date: 0,
                 offset_chat_id: 0,
@@ -254,20 +256,54 @@ class Search extends React.Component {
 
         MessageStore.setItems(messages.messages);
 
+        let linkMessage = null;
+        if (!chatId) {
+            try {
+                const messageLinkInfo = await TdLibController.send({
+                    '@type': 'getMessageLinkInfo',
+                    url: text
+                });
+                // console.log('[se] searchText=' + text + ' messageLinkInfo', messageLinkInfo);
+
+                MessageStore.setItems([messageLinkInfo.message]);
+
+                linkMessage = messageLinkInfo;
+            } catch (error) {
+                console.log('[se] searchText=' + text + ' messageLinkInfo error', error);
+            }
+        }
+
+        // console.log('[se] searchText=' + text + ' result', messages, linkMessage);
+
         if (sessionId !== this.sessionId) {
             return;
         }
 
+        // console.log('[se] searchText=' + text + ' result session', messages, linkMessage);
+
         this.setState({
-            messages: messages
+            messages,
+            linkMessage
         });
 
         const chats = new Map();
         const users = new Map();
         for (let i = 0; i < messages.messages.length; i++) {
             chats.set(messages.messages[i].chat_id, messages.messages[i].chat_id);
-            if (messages.messages[i].sender_user_id) {
-                users.set(messages.messages[i].sender_user_id, messages.messages[i].sender_user_id);
+            if (messages.messages[i].sender.user_id) {
+                users.set(messages.messages[i].sender.user_id, messages.messages[i].sender.user_id);
+            }
+        }
+
+        if (linkMessage) {
+            const { chat_id, message } = linkMessage;
+
+            chats.set(chat_id, chat_id);
+            if (message) {
+                const { sender } = message;
+                if (sender && sender.user_id) {
+                    users.set(sender.user_id, sender.user_id);
+                }
             }
         }
 
@@ -284,7 +320,8 @@ class Search extends React.Component {
                 recentlyFound: null,
                 local: null,
                 global: null,
-                messages: null
+                messages: null,
+                linkMessage: null
             });
 
             return;
@@ -319,33 +356,18 @@ class Search extends React.Component {
         ]);
 
         this.setState({
-            top: top,
-            recentlyFound: recentlyFound,
-            savedMessages: savedMessages,
+            top,
+            recentlyFound,
+            savedMessages,
             local: null,
             global: null,
-            messages: null
+            messages: null,
+            linkMessage: null
         });
 
         const store = FileStore.getStore();
         loadChatsContent(store, top.chat_ids);
         loadChatsContent(store, recentlyFound.chat_ids);
-    };
-
-    handleRecentlyFound = async () => {
-        const chats = await TdLibController.send({
-            '@type': 'getChats',
-            offset_order: '9223372036854775807',
-            offset_chat_id: 0,
-            limit: 20
-        });
-
-        for (let i = chats.chat_ids.length - 1; i >= 0; i--) {
-            TdLibController.send({
-                '@type': 'addRecentlyFoundChat',
-                chat_id: chats.chat_ids[i]
-            });
-        }
     };
 
     handleClearRecentlyFound = event => {
@@ -374,7 +396,7 @@ class Search extends React.Component {
     handleScroll = () => {
         const list = this.listRef.current;
 
-        if (list.scrollTop + list.offsetHeight === list.scrollHeight) {
+        if (list.scrollTop + list.offsetHeight >= list.scrollHeight - SCROLL_PRECISION) {
             this.onLoadPrevious();
         }
     };
@@ -432,6 +454,7 @@ class Search extends React.Component {
         } else {
             result = await TdLibController.send({
                 '@type': 'searchMessages',
+                chat_list: { '@type': 'chatListMain' },
                 query: this.text,
                 ...offset,
                 limit: 50
@@ -439,8 +462,7 @@ class Search extends React.Component {
         }
         this.loading = false;
 
-        filterMessages(result, messages ? messages.messages : []);
-
+        filterDuplicateMessages(result, messages ? messages.messages : []);
         MessageStore.setItems(result.messages);
 
         if (sessionId !== this.sessionId) {
@@ -455,8 +477,8 @@ class Search extends React.Component {
         const users = new Map();
         for (let i = 0; i < result.messages.length; i++) {
             chats.set(result.messages[i].chat_id, result.messages[i].chat_id);
-            if (result.messages[i].sender_user_id) {
-                users.set(result.messages[i].sender_user_id, result.messages[i].sender_user_id);
+            if (result.messages[i].sender.user_id) {
+                users.set(result.messages[i].sender.user_id, result.messages[i].sender.user_id);
             }
         }
 
@@ -475,16 +497,56 @@ class Search extends React.Component {
         onClose();
     };
 
+    handleDeleteRecentlyFoundChat = async chatId => {
+        if (!chatId) return;
+
+        await TdLibController.send({
+            '@type': 'removeRecentlyFoundChat',
+            chat_id: chatId
+        });
+
+        const { recentlyFound } = this.state;
+        if (!recentlyFound) return;
+
+        this.setState({
+            recentlyFound: { ...recentlyFound, chat_ids: recentlyFound.chat_ids.filter(x => x !== chatId) }
+        });
+    };
+
+    handleDeleteTopChat = async chatId => {
+        if (!chatId) return;
+
+        await TdLibController.send({
+            '@type': 'removeTopChat',
+            chat_id: chatId,
+            category: {
+                '@type': 'topChatCategoryUsers'
+            }
+        });
+
+        const { top } = this.state;
+        if (!top) return;
+
+        this.setState({
+            top: { ...top, chat_ids: top.chat_ids.filter(x => x !== chatId) }
+        });
+    };
+
     render() {
-        const { classes, chatId } = this.props;
-        const { top, recentlyFound, local, global, messages } = this.state;
+        const { chatId, t } = this.props;
+        const { top, recentlyFound, local, global, messages, linkMessage } = this.state;
 
         const chat = ChatStore.get(chatId);
 
         const topChats =
             top && top.chat_ids
                 ? top.chat_ids.map(x => (
-                      <TopChat key={x} chatId={x} onSelect={() => this.handleSelectMessage(x, null, false, false)} />
+                      <TopChat
+                          key={x}
+                          chatId={x}
+                          onSelect={() => this.handleSelectMessage(x, null, false, false)}
+                          onDelete={() => this.handleDeleteTopChat(x)}
+                      />
                   ))
                 : [];
 
@@ -495,6 +557,7 @@ class Search extends React.Component {
                           key={x}
                           chatId={x}
                           onClick={() => this.handleSelectMessage(x, null, true, false)}
+                          onDelete={() => this.handleDeleteRecentlyFoundChat(x)}
                       />
                   ))
                 : [];
@@ -509,79 +572,143 @@ class Search extends React.Component {
               ))
             : [];
 
+        const globalChatsMap = new Map();
         const globalChats = global
-            ? global.map(x => (
-                  <FoundPublicChat key={x} chatId={x} onClick={() => this.handleSelectMessage(x, null, true, true)} />
-              ))
+            ? global.map(x => {
+                  globalChatsMap.set(x, x);
+
+                  return (
+                      <FoundPublicChat
+                          key={x}
+                          chatId={x}
+                          onClick={() => this.handleSelectMessage(x, null, true, true)}
+                      />
+                  );
+              })
             : [];
 
+        const globalLinkChat =
+            linkMessage && linkMessage.chat_id && !linkMessage.message && !globalChatsMap.has(linkMessage.chat_id) ? (
+                <FoundPublicChat
+                    key={linkMessage.chat_id}
+                    chatId={linkMessage.chat_id}
+                    onClick={() => this.handleSelectMessage(linkMessage.chat_id, null, true, true)}
+                />
+            ) : null;
+
+        const globalMessagesMap = new Map();
         const globalMessages =
             messages && messages.messages
-                ? messages.messages.map(x => (
-                      <FoundMessage
-                          key={`${x.chat_id}_${x.id}`}
-                          chatId={x.chat_id}
-                          messageId={x.id}
-                          chatSearch={Boolean(chatId)}
-                          onClick={() => this.handleSelectMessage(x.chat_id, x.id, false, true)}
-                      />
-                  ))
+                ? messages.messages.map(x => {
+                      const key = `${x.chat_id}_${x.id}`;
+                      globalMessagesMap.set(key, key);
+
+                      return (
+                          <FoundMessage
+                              key={key}
+                              chatId={x.chat_id}
+                              messageId={x.id}
+                              chatSearch={Boolean(chatId)}
+                              onClick={() => this.handleSelectMessage(x.chat_id, x.id, false, true)}
+                          />
+                      );
+                  })
                 : [];
 
-        let messagesCaption = 'No messages found';
-        if (messages && messages.total_count) {
-            messagesCaption = messages.total_count === 1 ? 'Found 1 message' : `Found ${messages.total_count} messages`;
+        const globalLinkMessage =
+            linkMessage &&
+            linkMessage.message &&
+            !globalMessagesMap.has(`${linkMessage.message.chat_id}_${linkMessage.message.id}`) ? (
+                <FoundMessage
+                    key={`${linkMessage.message.chat_id}_${linkMessage.message.id}`}
+                    chatId={linkMessage.message.chat_id}
+                    messageId={linkMessage.message.id}
+                    chatSearch={false}
+                    onClick={() =>
+                        this.handleSelectMessage(linkMessage.message.chat_id, linkMessage.message.id, false, true)
+                    }
+                />
+            ) : null;
+
+        let count = messages ? messages.total_count : 0;
+        if (
+            linkMessage &&
+            linkMessage.message &&
+            !globalMessagesMap.has(`${linkMessage.message.chat_id}_${linkMessage.message.id}`)
+        ) {
+            count++;
+        }
+
+        let messagesCaption = t('NoMessages');
+        if (count) {
+            messagesCaption = count === 1 ? 'Found 1 message' : `Found ${count} messages`;
         }
 
         return (
-            <div ref={this.listRef} className={classNames(classes.search, 'search')} onScroll={this.handleScroll}>
+            <div ref={this.listRef} className='search' onScroll={this.handleScroll}>
                 {chat && (
-                    <div className='search-chat'>
-                        <SearchCaption caption='Search messages in' />
-                        <div className='search-chat-wrapper'>
-                            <div className='search-chat-control'>
-                                <ChatControl chatId={chatId} showStatus={false} />
+                    <>
+                        <div className='sidebar-page-section'>
+                            <SectionHeader>{t('SearchMessagesIn')}</SectionHeader>
+                            <div className='search-chat-wrapper'>
+                                <div className='search-chat-control'>
+                                    <Chat chatId={chatId} showStatus={false} />
+                                </div>
+                                <IconButton
+                                    className='header-right-button'
+                                    aria-label='Search'
+                                    onMouseDown={this.handleClose}>
+                                    <CloseIcon />
+                                </IconButton>
                             </div>
-                            <IconButton
-                                className={classes.closeSearchIconButton}
-                                aria-label='Search'
-                                onMouseDown={this.handleClose}>
-                                <CloseIcon />
-                            </IconButton>
                         </div>
-                    </div>
+                        <div className='sidebar-page-section-divider' />
+                    </>
                 )}
                 {topChats.length > 0 && (
-                    <div className='search-top-chats'>
-                        <SearchCaption caption='People' />
-                        <div className='search-top-chats-list' onScroll={this.handleTopChatsScroll}>
-                            <div className='search-top-chats-placeholder' />
-                            {topChats}
-                            <div className='search-top-chats-placeholder' />
+                    <>
+                        <div className='sidebar-page-section'>
+                            <SectionHeader>{t('ChatHints')}</SectionHeader>
+                            <div className='search-top-chats-list' onScroll={this.handleTopChatsScroll}>
+                                <div className='search-top-chats-placeholder' />
+                                {topChats}
+                                <div className='search-top-chats-placeholder' />
+                            </div>
                         </div>
-                    </div>
+                        <div className='sidebar-page-section-divider' />
+                    </>
                 )}
                 {recentlyFoundChats.length > 0 && (
-                    <div className='search-recently-found-chats'>
-                        <SearchCaption caption='Recent' command='Clear' onClick={this.handleClearRecentlyFound} />
+                    <div className='sidebar-page-section'>
+                        <SectionHeader command={t('ClearButton')} onClick={this.handleClearRecentlyFound}>
+                            {t('Recent')}
+                        </SectionHeader>
                         {recentlyFoundChats}
                     </div>
                 )}
                 {localChats.length > 0 && (
-                    <div className='search-local-chats'>
-                        <SearchCaption caption='Chats and contacts' />
-                        {localChats}
-                    </div>
+                    <>
+                        <div className='sidebar-page-section'>
+                            <SectionHeader>{t('ChatsAndContacts')}</SectionHeader>
+                            {localChats}
+                        </div>
+                        <div className='sidebar-page-section-divider' />
+                    </>
                 )}
                 {globalChats.length > 0 && (
-                    <div className='search-global-chats'>
-                        <SearchCaption caption='Global search' />
-                        {globalChats}
-                    </div>
+                    <>
+                        <div className='sidebar-page-section'>
+                            <SectionHeader>{t('GlobalSearch')}</SectionHeader>
+                            {globalLinkChat}
+                            {globalChats}
+                        </div>
+                        <div className='sidebar-page-section-divider' />
+                    </>
                 )}
-                {messages && (
-                    <div className='search-global-chats'>
-                        <SearchCaption caption={messagesCaption} />
+                {(messages || (linkMessage && linkMessage.message)) && (
+                    <div className='sidebar-page-section'>
+                        <SectionHeader>{messagesCaption}</SectionHeader>
+                        {globalLinkMessage}
                         {globalMessages}
                     </div>
                 )}
@@ -597,9 +724,4 @@ Search.propTypes = {
     onClose: PropTypes.func.isRequired
 };
 
-const enhance = compose(
-    withStyles(styles, { withTheme: true }),
-    withTranslation()
-);
-
-export default enhance(Search);
+export default withTranslation()(Search);

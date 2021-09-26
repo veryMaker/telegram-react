@@ -5,35 +5,135 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { formatNumber } from 'libphonenumber-js';
 import { PHOTO_SIZE, PHOTO_THUMBNAIL_SIZE } from '../Constants';
 
+let webpSupported = undefined;
+
+export async function isWebpSupported() {
+    // return false;
+
+    if (webpSupported !== undefined) {
+        return webpSupported;
+    }
+
+    const promise = new Promise(resolve => {
+        const image = new Image();
+        image.onload = function () {
+            resolve(image.width === 2 && image.height === 1);
+        }
+        image.onerror = function () {
+            resolve(false);
+        }
+        image.src = 'data:image/webp;base64,UklGRjIAAABXRUJQVlA4ICYAAACyAgCdASoCAAEALmk0mk0iIiIiIgBoSygABc6zbAAA/v56QAAAAA==';
+    });
+
+    return webpSupported = await promise;
+}
+
+export function isSafari() {
+    return /(Safari|iPhone|iPad|iPod)/.test(navigator.userAgent)
+        && !/Chrome/.test(navigator.userAgent)
+        && !/BlackBerry/.test(navigator.platform);
+}
+
+export function mapEquals(map1, map2) {
+    if (!map1 || !map2) return false;
+
+    let testVal;
+    if (map1.size !== map2.size) {
+        return false;
+    }
+
+    for (let [key, val] of map1) {
+        testVal = map2.get(key);
+        // in cases of an undefined value, make sure the key
+        // actually exists on the object so there are no false positives
+        if (testVal !== val || (testVal === undefined && !map2.has(key))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+export function isMobile() {
+    return isAndroid() || isIOS() || isWindowsPhone();
+}
+
+export function isMacOS() {
+    return navigator.platform.toLowerCase().indexOf('mac') >= 0;
+}
+
+export function isIOS() {
+    const iDevices = ['iPad Simulator', 'iPhone Simulator', 'iPod Simulator', 'iPad', 'iPhone', 'iPod'];
+
+    if (!!navigator.platform && iDevices.indexOf(navigator.platform) > -1) {
+        return true;
+    }
+
+    return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+}
+
+export function isAndroid() {
+    const ua = navigator.userAgent.toLowerCase();
+    return ua.indexOf('android') > -1;
+}
+
+export function isWindowsPhone() {
+    if (navigator.userAgent.match(/Windows Phone/i)) {
+        return true;
+    }
+
+    if (navigator.userAgent.match(/iemobile/i)) {
+        return true;
+    }
+
+    if (navigator.userAgent.match(/WPDesktop/i)) {
+        return true;
+    }
+
+    return false;
+}
+
+function isAppleDevice() {
+    const iDevices = ['iPad Simulator', 'iPhone Simulator', 'iPod Simulator', 'iPad', 'iPhone', 'iPod', 'MacIntel'];
+
+    if (!!navigator.platform) {
+        return iDevices.indexOf(navigator.platform) > -1;
+    }
+
+    return /iPad|iPhone|iPod|Mac\sOS\sX/.test(navigator.userAgent) && !window.MSStream;
+}
+
 function getOSName() {
+    const { userAgent } = window.navigator;
+
     let OSName = 'Unknown';
-    if (window.navigator.userAgent.indexOf('Windows NT 10.0') != -1) OSName = 'Windows 10';
-    if (window.navigator.userAgent.indexOf('Windows NT 6.2') != -1) OSName = 'Windows 8';
-    if (window.navigator.userAgent.indexOf('Windows NT 6.1') != -1) OSName = 'Windows 7';
-    if (window.navigator.userAgent.indexOf('Windows NT 6.0') != -1) OSName = 'Windows Vista';
-    if (window.navigator.userAgent.indexOf('Windows NT 5.1') != -1) OSName = 'Windows XP';
-    if (window.navigator.userAgent.indexOf('Windows NT 5.0') != -1) OSName = 'Windows 2000';
-    if (window.navigator.userAgent.indexOf('Mac') != -1) OSName = 'Mac/iOS';
-    if (window.navigator.userAgent.indexOf('X11') != -1) OSName = 'UNIX';
-    if (window.navigator.userAgent.indexOf('Linux') != -1) OSName = 'Linux';
+    if (userAgent.indexOf('Windows NT 10.0') !== -1) OSName = 'Windows 10';
+    if (userAgent.indexOf('Windows NT 6.2') !== -1) OSName = 'Windows 8';
+    if (userAgent.indexOf('Windows NT 6.1') !== -1) OSName = 'Windows 7';
+    if (userAgent.indexOf('Windows NT 6.0') !== -1) OSName = 'Windows Vista';
+    if (userAgent.indexOf('Windows NT 5.1') !== -1) OSName = 'Windows XP';
+    if (userAgent.indexOf('Windows NT 5.0') !== -1) OSName = 'Windows 2000';
+    if (userAgent.indexOf('Mac') !== -1) OSName = 'Mac/iOS';
+    if (userAgent.indexOf('X11') !== -1) OSName = 'UNIX';
+    if (userAgent.indexOf('Linux') !== -1) OSName = 'Linux';
 
     return OSName;
 }
 
 function getBrowser() {
+    const { userAgent } = window.navigator;
+
     let browser_name = '';
     let isIE = /*@cc_on!@*/ false || !!document.documentMode;
     let isEdge = !isIE && !!window.StyleMedia;
-    if (navigator.userAgent.indexOf('Chrome') != -1 && !isEdge) {
+    if (userAgent.indexOf('Chrome') !== -1 && !isEdge) {
         browser_name = 'Chrome';
-    } else if (navigator.userAgent.indexOf('Safari') != -1 && !isEdge) {
+    } else if (userAgent.indexOf('Safari') !== -1 && !isEdge) {
         browser_name = 'Safari';
-    } else if (navigator.userAgent.indexOf('Firefox') != -1) {
+    } else if (userAgent.indexOf('Firefox') !== -1) {
         browser_name = 'Firefox';
-    } else if (navigator.userAgent.indexOf('MSIE') != -1 || !!document.documentMode == true) {
+    } else if (userAgent.indexOf('MSIE') !== -1 || !!document.documentMode === true) {
         //IF IE > 10
         browser_name = 'IE';
     } else if (isEdge) {
@@ -43,20 +143,6 @@ function getBrowser() {
     }
 
     return browser_name;
-}
-
-function isValidPhoneNumber(phoneNumber) {
-    if (!phoneNumber) return false;
-
-    let isBad = !phoneNumber.match(/^[\d\-+\s]+$/);
-    if (!isBad) {
-        phoneNumber = phoneNumber.replace(/\D/g, '');
-        if (phoneNumber.length < 7) {
-            isBad = true;
-        }
-    }
-
-    return !isBad;
 }
 
 function stringToBoolean(string) {
@@ -87,8 +173,8 @@ function getPhotoThumbnailSize(sizes) {
     return getSize(sizes, PHOTO_THUMBNAIL_SIZE);
 }
 
-function getPhotoSize(sizes) {
-    return getSize(sizes, PHOTO_SIZE);
+function getPhotoSize(sizes, displaySize = PHOTO_SIZE) {
+    return getSize(sizes, displaySize);
 }
 
 function getSize(sizes, dimension) {
@@ -96,15 +182,19 @@ function getSize(sizes, dimension) {
     if (sizes.length === 0) return null;
     if (dimension === 0) return null;
 
-    // let iSize = sizes[2];//.find(x => x.type === 'i');
-    // if (iSize){
-    //     return iSize;
-    // }
+    let iSize = sizes.find(x => x.type === 'i');
+    if (iSize){
+        return iSize;
+    }
 
     let useWidth = sizes[0].width >= sizes[0].height;
     let diff = Math.abs(dimension - (useWidth ? sizes[0].width : sizes[0].height));
     let index = 0;
     for (let i = 1; i < sizes.length; i++) {
+        if (!sizes[i]) {
+            continue;
+        }
+
         if (sizes[i].type === 'i' && !sizes[i].photo.local.is_downloading_completed) {
             continue;
         }
@@ -119,10 +209,10 @@ function getSize(sizes, dimension) {
     return sizes[index];
 }
 
-function getFitSize(size, max, increaseToMax = true) {
+function getFitSize(size, max, stretch = true) {
     if (!size) return { width: 0, height: 0 };
 
-    if (!increaseToMax) {
+    if (!stretch) {
         if (size.width < max && size.height < max) {
             return size;
         }
@@ -136,12 +226,12 @@ function getFitSize(size, max, increaseToMax = true) {
 }
 
 function itemsInView(scrollContainerRef, itemsContainerRef) {
-    let scrollContainer = scrollContainerRef.current;
-    let itemsContainer = itemsContainerRef ? itemsContainerRef.current : scrollContainer;
+    const scrollContainer = scrollContainerRef.current;
+    const itemsContainer = itemsContainerRef ? itemsContainerRef.current : scrollContainer;
 
     const items = [];
     for (let i = 0; i < itemsContainer.children.length; i++) {
-        let child = itemsContainer.children[i];
+        const child = itemsContainer.children[i];
         if (
             child.offsetTop + child.offsetHeight >= scrollContainer.scrollTop &&
             child.offsetTop <= scrollContainer.scrollTop + scrollContainer.offsetHeight
@@ -151,6 +241,26 @@ function itemsInView(scrollContainerRef, itemsContainerRef) {
     }
 
     return items;
+}
+
+export function getScrollMessage(snapshot, itemsContainerRef) {
+    if (!snapshot) return { index: -1, offset: 0 };
+
+    const { current: itemsContainer } = itemsContainerRef;
+
+    for (let i = 0; i < itemsContainer.children.length; i++) {
+        const child = itemsContainer.children[i];
+        const offsetTop = child.offsetTop;
+        const scrollTop = snapshot.scrollTop;
+        const offsetHeight = snapshot.offsetHeight;
+        // console.log('[scroll] child', [i, offsetTop, child.offsetHeight, scrollTop]);
+
+        if (offsetTop >= scrollTop && offsetTop <= scrollTop + offsetHeight) {
+            return { index: i, offset: offsetTop - scrollTop, offsetTop, scrollTop };
+        }
+    }
+
+    return { index: -1, offset: 0 };
 }
 
 // Returns a function, that, when invoked, will only be triggered at most once
@@ -190,110 +300,300 @@ function throttle(func, wait, options) {
     };
 }
 
+function isObject(value) {
+    const type = typeof value
+    return value != null && (type === 'object' || type === 'function')
+}
+
+
+/**
+ * Creates a debounced function that delays invoking `func` until after `wait`
+ * milliseconds have elapsed since the last time the debounced function was
+ * invoked, or until the next browser frame is drawn. The debounced function
+ * comes with a `cancel` method to cancel delayed `func` invocations and a
+ * `flush` method to immediately invoke them. Provide `options` to indicate
+ * whether `func` should be invoked on the leading and/or trailing edge of the
+ * `wait` timeout. The `func` is invoked with the last arguments provided to the
+ * debounced function. Subsequent calls to the debounced function return the
+ * result of the last `func` invocation.
+ *
+ * **Note:** If `leading` and `trailing` options are `true`, `func` is
+ * invoked on the trailing edge of the timeout only if the debounced function
+ * is invoked more than once during the `wait` timeout.
+ *
+ * If `wait` is `0` and `leading` is `false`, `func` invocation is deferred
+ * until the next tick, similar to `setTimeout` with a timeout of `0`.
+ *
+ * If `wait` is omitted in an environment with `requestAnimationFrame`, `func`
+ * invocation will be deferred until the next frame is drawn (typically about
+ * 16ms).
+ *
+ * See [David Corbacho's article](https://css-tricks.com/debouncing-throttling-explained-examples/)
+ * for details over the differences between `debounce` and `throttle`.
+ *
+ * @since 0.1.0
+ * @category Function
+ * @param {Function} func The function to debounce.
+ * @param {number} [wait=0]
+ *  The number of milliseconds to delay; if omitted, `requestAnimationFrame` is
+ *  used (if available).
+ * @param {Object} [options={}] The options object.
+ * @param {boolean} [options.leading=false]
+ *  Specify invoking on the leading edge of the timeout.
+ * @param {number} [options.maxWait]
+ *  The maximum time `func` is allowed to be delayed before it's invoked.
+ * @param {boolean} [options.trailing=true]
+ *  Specify invoking on the trailing edge of the timeout.
+ * @returns {Function} Returns the new debounced function.
+ * @example
+ *
+ * // Avoid costly calculations while the window size is in flux.
+ * jQuery(window).on('resize', debounce(calculateLayout, 150))
+ *
+ * // Invoke `sendMail` when clicked, debouncing subsequent calls.
+ * jQuery(element).on('click', debounce(sendMail, 300, {
+ *   'leading': true,
+ *   'trailing': false
+ * }))
+ *
+ * // Ensure `batchLog` is invoked once after 1 second of debounced calls.
+ * const debounced = debounce(batchLog, 250, { 'maxWait': 1000 })
+ * const source = new EventSource('/stream')
+ * jQuery(source).on('message', debounced)
+ *
+ * // Cancel the trailing debounced invocation.
+ * jQuery(window).on('popstate', debounced.cancel)
+ *
+ * // Check for pending invocations.
+ * const status = debounced.pending() ? "Pending..." : "Ready"
+ */
+function debounce(func, wait, options) {
+    let lastArgs,
+        lastThis,
+        maxWait,
+        result,
+        timerId,
+        lastCallTime
+
+    let lastInvokeTime = 0
+    let leading = false
+    let maxing = false
+    let trailing = true
+
+    // Bypass `requestAnimationFrame` by explicitly setting `wait=0`.
+    const useRAF = (!wait && wait !== 0 && typeof requestAnimationFrame === 'function')
+
+    if (typeof func !== 'function') {
+        throw new TypeError('Expected a function')
+    }
+    wait = +wait || 0
+    if (isObject(options)) {
+        leading = !!options.leading
+        maxing = 'maxWait' in options
+        maxWait = maxing ? Math.max(+options.maxWait || 0, wait) : maxWait
+        trailing = 'trailing' in options ? !!options.trailing : trailing
+    }
+
+    function invokeFunc(time) {
+        const args = lastArgs
+        const thisArg = lastThis
+
+        lastArgs = lastThis = undefined
+        lastInvokeTime = time
+        result = func.apply(thisArg, args)
+        return result
+    }
+
+    function startTimer(pendingFunc, wait) {
+        if (useRAF) {
+            cancelAnimationFrame(timerId)
+            return requestAnimationFrame(pendingFunc)
+        }
+        return setTimeout(pendingFunc, wait)
+    }
+
+    function cancelTimer(id) {
+        if (useRAF) {
+            return cancelAnimationFrame(id)
+        }
+        clearTimeout(id)
+    }
+
+    function leadingEdge(time) {
+        // Reset any `maxWait` timer.
+        lastInvokeTime = time
+        // Start the timer for the trailing edge.
+        timerId = startTimer(timerExpired, wait)
+        // Invoke the leading edge.
+        return leading ? invokeFunc(time) : result
+    }
+
+    function remainingWait(time) {
+        const timeSinceLastCall = time - lastCallTime
+        const timeSinceLastInvoke = time - lastInvokeTime
+        const timeWaiting = wait - timeSinceLastCall
+
+        return maxing
+            ? Math.min(timeWaiting, maxWait - timeSinceLastInvoke)
+            : timeWaiting
+    }
+
+    function shouldInvoke(time) {
+        const timeSinceLastCall = time - lastCallTime
+        const timeSinceLastInvoke = time - lastInvokeTime
+
+        // Either this is the first call, activity has stopped and we're at the
+        // trailing edge, the system time has gone backwards and we're treating
+        // it as the trailing edge, or we've hit the `maxWait` limit.
+        return (lastCallTime === undefined || (timeSinceLastCall >= wait) ||
+            (timeSinceLastCall < 0) || (maxing && timeSinceLastInvoke >= maxWait))
+    }
+
+    function timerExpired() {
+        const time = Date.now()
+        if (shouldInvoke(time)) {
+            return trailingEdge(time)
+        }
+        // Restart the timer.
+        timerId = startTimer(timerExpired, remainingWait(time))
+    }
+
+    function trailingEdge(time) {
+        timerId = undefined
+
+        // Only invoke if we have `lastArgs` which means `func` has been
+        // debounced at least once.
+        if (trailing && lastArgs) {
+            return invokeFunc(time)
+        }
+        lastArgs = lastThis = undefined
+        return result
+    }
+
+    function cancel() {
+        if (timerId !== undefined) {
+            cancelTimer(timerId)
+        }
+        lastInvokeTime = 0
+        lastArgs = lastCallTime = lastThis = timerId = undefined
+    }
+
+    function flush() {
+        return timerId === undefined ? result : trailingEdge(Date.now())
+    }
+
+    function pending() {
+        return timerId !== undefined
+    }
+
+    function debounced(...args) {
+        const time = Date.now()
+        const isInvoking = shouldInvoke(time)
+
+        lastArgs = args
+        lastThis = this
+        lastCallTime = time
+
+        if (isInvoking) {
+            if (timerId === undefined) {
+                return leadingEdge(lastCallTime)
+            }
+            if (maxing) {
+                // Handle invocations in a tight loop.
+                timerId = startTimer(timerExpired, wait)
+                return invokeFunc(lastCallTime)
+            }
+        }
+        if (timerId === undefined) {
+            timerId = startTimer(timerExpired, wait)
+        }
+        return result
+    }
+    debounced.cancel = cancel
+    debounced.flush = flush
+    debounced.pending = pending
+    return debounced
+}
+
 // Returns a function, that, as long as it continues to be invoked, will not
 // be triggered. The function will be called after it stops being called for
 // N milliseconds. If `immediate` is passed, trigger the function on the
 // leading edge, instead of the trailing.
-function debounce(func, wait, immediate) {
-    var timeout;
-    return function() {
-        var context = this,
-            args = arguments;
-        var later = function() {
-            timeout = null;
-            if (!immediate) {
-                func.apply(context, args);
-            }
-        };
-        var callNow = immediate && !timeout;
-        clearTimeout(timeout);
-        timeout = setTimeout(later, wait);
-        if (callNow) {
-            func.apply(context, args);
-        }
-    };
-}
+// function debounce(func, wait, immediate) {
+//     let timeout;
+//     return function() {
+//         const context = this, args = arguments;
+//         const later = function() {
+//             timeout = null;
+//             if (!immediate) {
+//                 func.apply(context, args);
+//             }
+//         };
+//         const callNow = immediate && !timeout;
+//         clearTimeout(timeout);
+//         timeout = setTimeout(later, wait);
+//         if (callNow) {
+//             func.apply(context, args);
+//         }
+//     };
+// }
 
-function getFirstLetter(str) {
+export function getFirstLetter(str) {
     if (!str) return '';
-    for (let i = 0; i < str.length; i++) {
-        if (str[i].toUpperCase() !== str[i].toLowerCase()) {
-            return str[i];
-        } else if (str[i] >= '0' && str[i] <= '9') {
-            return str[i];
+
+    for (let char of str) {
+        if (char.toUpperCase() !== char.toLowerCase()) {
+            return char;
+        } else if (char >= '0' && char <= '9') {
+            return char;
+        } else if (char.length > 1) {
+            return char;
         }
     }
 
-    return '';
+    return [...str].length > 0 ? [...str][0] : '';
 }
 
 function getLetters(title) {
     if (!title) return null;
     if (title.length === 0) return null;
 
-    let split = title.split(' ');
+    const split = title.split(' ');
+    if (split.length === 1) {
+        return getFirstLetter(split[0]);
+    }
     if (split.length > 1) {
-        return getFirstLetter(split[0]) + getFirstLetter(split[1]);
+        return getFirstLetter(split[0]) + getFirstLetter(split[split.length - 1]);
     }
 
     return null;
 }
 
-function readImageSize(file, callback) {
-    let useBlob = false;
-    // Create a new FileReader instance
-    // https://developer.mozilla.org/en/docs/Web/API/FileReader
-    var reader = new FileReader();
+async function readImageSize(file) {
+    return new Promise((resolve, reject) => {
+        let useBlob = false;
+        const reader = new FileReader();
 
-    // Once a file is successfully readed:
-    reader.addEventListener('load', function() {
-        // At this point `reader.result` contains already the Base64 Data-URL
-        // and we've could immediately show an image using
-        // `elPreview.insertAdjacentHTML("beforeend", "<img src='"+ reader.result +"'>");`
-        // But we want to get that image's width and height px values!
-        // Since the File Object does not hold the size of an image
-        // we need to create a new image and assign it's src, so when
-        // the image is loaded we can calculate it's width and height:
-        var image = new Image();
-        image.addEventListener('load', function() {
-            // Concatenate our HTML image info
-            // var imageInfo = file.name    +' '+ // get the value of `name` from the `file` Obj
-            //     image.width  +'×'+ // But get the width from our `image`
-            //     image.height +' '+
-            //     file.type    +' '+
-            //     Math.round(file.size/1024) +'KB';
+        reader.addEventListener('load', function() {
+            try {
+                const image = new Image();
+                image.addEventListener('load', function() {
+                    const { width, height } = image;
+                    if (useBlob) {
+                        window.URL.revokeObjectURL(image.src);
+                    }
 
-            //alert(imageInfo);
-            file.photoWidth = image.width;
-            file.photoHeight = image.height;
-            // Finally append our created image and the HTML info string to our `#preview`
-            //elPreview.appendChild( this );
-            //elPreview.insertAdjacentHTML("beforeend", imageInfo +'<br>');
+                    resolve([width, height]);
+                });
 
-            // If we set the variable `useBlob` to true:
-            // (Data-URLs can end up being really large
-            // `src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAA...........etc`
-            // Blobs are usually faster and the image src will hold a shorter blob name
-            // src="blob:http%3A//example.com/2a303acf-c34c-4d0a-85d4-2136eef7d723"
-            if (useBlob) {
-                // Free some memory for optimal performance
-                window.URL.revokeObjectURL(image.src);
+                image.src = useBlob ? window.URL.createObjectURL(file) : reader.result;
+            } catch {
+                reject();
             }
-
-            callback(file);
         });
 
-        image.src = useBlob ? window.URL.createObjectURL(file) : reader.result;
+        reader.readAsDataURL(file);
     });
-
-    // https://developer.mozilla.org/en-US/docs/Web/API/FileReader/readAsDataURL
-    reader.readAsDataURL(file);
-}
-
-function formatPhoneNumber(number) {
-    const unformattedNumber = number && number.startsWith('+') ? number : '+' + number;
-    const formattedNumber = formatNumber(unformattedNumber, 'International');
-    return formattedNumber || unformattedNumber;
 }
 
 /**
@@ -340,11 +640,22 @@ function isAuthorizationReady(state) {
     return state['@type'] === 'authorizationStateReady';
 }
 
-function between(item, first, last) {
-    return item > first && item < last;
+function between(item, first, last, inclusive = false) {
+    return inclusive ? item >= first && item <= last : item > first && item < last;
 }
 
-function getDurationString(secondsTotal) {
+function clamp(item, first, last) {
+    if (item < first) return first;
+    if (item > last) return last;
+
+    return item;
+}
+
+function getDurationString(secondsTotal, duration, reverse) {
+    if (reverse && duration > 0) {
+        secondsTotal = Math.max(Math.floor(duration) - secondsTotal, 0);
+    }
+
     let hours = Math.floor(secondsTotal / 3600);
     let minutes = Math.floor((secondsTotal - hours * 3600) / 60);
     let seconds = secondsTotal - hours * 3600 - minutes * 60;
@@ -356,19 +667,52 @@ function getDurationString(secondsTotal) {
         seconds = '0' + seconds;
     }
 
-    return (hours > 0 ? hours + ':' : '') + minutes + ':' + seconds;
+    return (reverse ? '-': '') + (hours > 0 ? hours + ':' : '') + minutes + ':' + seconds;
 }
 
-function getRandomInt(min, max) {
+export function getRandomInt(min, max) {
     min = Math.ceil(min);
     max = Math.floor(max);
     return Math.floor(Math.random() * (max - min)) + min; //The maximum is exclusive and the minimum is inclusive
 }
 
+function historyEquals(first, second) {
+    if (!first && second) return false;
+    if (first && !second) return false;
+
+    if (!first && !second) return true;
+    if (first.length === 0 && second.length === 0) return true;
+
+    return first === second;
+}
+
+export function albumHistoryEquals(first, second) {
+    if (first === second) return true;
+    if (!first && second) return false;
+    if (first && !second) return false;
+
+    if (first.length === 0 && second.length === 0) return true;
+    if (first.length !== second.length) return false;
+
+    for (let i = 0; i < first.length; i++) {
+        if (first[i] !== second[i]) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function insertByOrder(array, element, comparator) {
+    let i = 0;
+    for (; i < array.length && comparator(array[i], element) < 0; i++) {}
+
+    return [...array.slice(0, i), element, ...array.slice(i)];
+}
+
 export {
     getBrowser,
     getOSName,
-    isValidPhoneNumber,
     stringToBoolean,
     orderCompare,
     getSize,
@@ -380,10 +724,12 @@ export {
     debounce,
     getLetters,
     readImageSize,
-    formatPhoneNumber,
     arrayBufferToBase64,
     isAuthorizationReady,
     between,
+    clamp,
     getDurationString,
-    getRandomInt
+    isAppleDevice,
+    historyEquals,
+    insertByOrder
 };

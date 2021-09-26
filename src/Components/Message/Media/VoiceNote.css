@@ -8,13 +8,30 @@
 .voice-note-content {
     flex-grow: 1;
     flex-shrink: 1;
-    margin-left: 12px;
-    pointer-events: none;
+    margin-left: 9px;
+    /*pointer-events: none;*/
+    min-width: 200px;
+    overflow: hidden;
 }
 
 .voice-note-meta {
-    color: #70777b;
     font-size: 14px;
+    line-height: normal;
     user-select: none;
     display: flex;
+    align-items: center;
+    color: var(--message-in-subtle-color);
+}
+
+.voice-note-meta-unread {
+    margin-left: 6px;
+    margin-top: 2px;
+    background: currentColor;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+}
+
+.message-out .voice-note-meta {
+    color: var(--message-out-subtle-color);
 }

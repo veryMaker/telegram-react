@@ -11,66 +11,81 @@ import classNames from 'classnames';
 import { getSrc } from '../../Utils/File';
 import { isBlurredThumbnail } from '../../Utils/Media';
 import { hasVideoNote } from '../../Utils/Message';
+import { THUMBNAIL_BLURRED_SIZE_40, THUMBNAIL_BLURRED_SIZE_90 } from '../../Constants';
 import FileStore from '../../Stores/FileStore';
 import './ReplyTile.css';
 
 class ReplyTile extends React.Component {
     componentDidMount() {
-        FileStore.on('clientUpdateAnimationThumbnailBlob', this.onClientUpdatePhotoBlob);
-        FileStore.on('clientUpdateAudioThumbnailBlob', this.onClientUpdatePhotoBlob);
-        FileStore.on('clientUpdateDocumentThumbnailBlob', this.onClientUpdatePhotoBlob);
-        FileStore.on('clientUpdatePhotoBlob', this.onClientUpdatePhotoBlob);
-        FileStore.on('clientUpdateStickerThumbnailBlob', this.onClientUpdatePhotoBlob);
-        FileStore.on('clientUpdateVideoThumbnailBlob', this.onClientUpdatePhotoBlob);
-        FileStore.on('clientUpdateVideoNoteThumbnailBlob', this.onClientUpdatePhotoBlob);
+        FileStore.on('clientUpdateAnimationThumbnailBlob', this.onClientUpdateBlob);
+        FileStore.on('clientUpdateAudioThumbnailBlob', this.onClientUpdateBlob);
+        FileStore.on('clientUpdateDocumentThumbnailBlob', this.onClientUpdateBlob);
+        FileStore.on('clientUpdatePhotoBlob', this.onClientUpdateBlob);
+        FileStore.on('clientUpdateStickerThumbnailBlob', this.onClientUpdateBlob);
+        FileStore.on('clientUpdateVideoThumbnailBlob', this.onClientUpdateBlob);
+        FileStore.on('clientUpdateVideoNoteThumbnailBlob', this.onClientUpdateBlob);
     }
 
     componentWillUnmount() {
-        FileStore.removeListener('clientUpdateAnimationThumbnailBlob', this.onClientUpdatePhotoBlob);
-        FileStore.removeListener('clientUpdateAudioThumbnailBlob', this.onClientUpdatePhotoBlob);
-        FileStore.removeListener('clientUpdateDocumentThumbnailBlob', this.onClientUpdatePhotoBlob);
-        FileStore.removeListener('clientUpdatePhotoBlob', this.onClientUpdatePhotoBlob);
-        FileStore.removeListener('clientUpdateStickerThumbnailBlob', this.onClientUpdatePhotoBlob);
-        FileStore.removeListener('clientUpdateVideoThumbnailBlob', this.onClientUpdatePhotoBlob);
-        FileStore.removeListener('clientUpdateVideoNoteThumbnailBlob', this.onClientUpdatePhotoBlob);
+        FileStore.off('clientUpdateAnimationThumbnailBlob', this.onClientUpdateBlob);
+        FileStore.off('clientUpdateAudioThumbnailBlob', this.onClientUpdateBlob);
+        FileStore.off('clientUpdateDocumentThumbnailBlob', this.onClientUpdateBlob);
+        FileStore.off('clientUpdatePhotoBlob', this.onClientUpdateBlob);
+        FileStore.off('clientUpdateStickerThumbnailBlob', this.onClientUpdateBlob);
+        FileStore.off('clientUpdateVideoThumbnailBlob', this.onClientUpdateBlob);
+        FileStore.off('clientUpdateVideoNoteThumbnailBlob', this.onClientUpdateBlob);
     }
 
-    onClientUpdatePhotoBlob = update => {
-        const { chatId, messageId, photoSize } = this.props;
-        if (!photoSize) return;
+    onClientUpdateBlob = update => {
+        const { chatId, messageId, thumbnail } = this.props;
+        if (!thumbnail) return;
 
-        const { photo } = photoSize;
-        if (!photo) return;
+        const file = thumbnail.photo || thumbnail.file;
+        if (!file) return;
 
-        if (update.chatId === chatId && update.messageId === messageId && update.fileId === photo.id) {
+        if (update.chatId === chatId && update.messageId === messageId && update.fileId === file.id) {
             this.forceUpdate();
         }
     };
 
     render() {
-        const { chatId, messageId, photoSize } = this.props;
-        if (!photoSize) return null;
+        const { chatId, messageId, thumbnail, minithumbnail, onClick } = this.props;
+        if (!thumbnail) return null;
 
-        const { photo } = photoSize;
-        if (!photo) return null;
+        const file = thumbnail.photo || thumbnail.file;
+        if (!file) return null;
 
-        const src = getSrc(photo);
-        const isBlurred = isBlurredThumbnail(photo);
+        const miniSrc = minithumbnail ? 'data:image/jpeg;base64, ' + minithumbnail.data : null;
+        const src = getSrc(file);
+        const isBlurred = isBlurredThumbnail(thumbnail, THUMBNAIL_BLURRED_SIZE_90, THUMBNAIL_BLURRED_SIZE_40);
         const isVideoNote = hasVideoNote(chatId, messageId);
 
         return (
-            <div className='reply-tile'>
-                <img
-                    className={classNames(
-                        'reply-tile-photo',
-                        { 'reply-tile-photo-round': isVideoNote },
-                        { 'reply-tile-photo-loading': !src },
-                        { 'media-blurred': isBlurred }
-                    )}
-                    draggable={false}
-                    src={src}
-                    alt=''
-                />
+            <div className='reply-tile' onClick={onClick}>
+                {miniSrc && (
+                    <img
+                        className={classNames(
+                            'reply-tile-photo',
+                            { 'reply-tile-photo-round': isVideoNote },
+                            { 'media-mini-blurred': true }
+                        )}
+                        draggable={false}
+                        src={miniSrc}
+                        alt=''
+                    />
+                )}
+                {src && (
+                    <img
+                        className={classNames(
+                            'reply-tile-photo',
+                            { 'reply-tile-photo-round': isVideoNote },
+                            { 'media-blurred': src && isBlurred }
+                        )}
+                        draggable={false}
+                        src={src}
+                        alt=''
+                    />
+                )}
             </div>
         );
     }
@@ -79,7 +94,9 @@ class ReplyTile extends React.Component {
 ReplyTile.propTypes = {
     chatId: PropTypes.number.isRequired,
     messageId: PropTypes.number.isRequired,
-    photoSize: PropTypes.object.isRequired
+    minithumbnail: PropTypes.object,
+    thumbnail: PropTypes.object,
+    onClick: PropTypes.func
 };
 
 export default ReplyTile;

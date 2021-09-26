@@ -8,7 +8,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import ListItem from '@material-ui/core/ListItem';
-import ChatControl from '../Tile/ChatControl';
+import Chat from '../Tile/Chat';
 import GroupsInCommonHeader from './GroupsInCommonHeader';
 import { getChatUserId } from '../../Utils/Chat';
 import { loadChatsContent } from '../../Utils/File';
@@ -45,10 +45,10 @@ class GroupsInCommon extends React.Component {
         });
     }
 
-    handleSelect = chat => {
+    handleSelect = chatId => {
         const { popup } = this.props;
 
-        openChat(chat.id);
+        openChat(chatId);
 
         if (popup) {
             TdLibController.clientUpdate({
@@ -64,7 +64,7 @@ class GroupsInCommon extends React.Component {
 
         const chats = chatIds.map(x => (
             <ListItem button key={x}>
-                <ChatControl chatId={x} onSelect={this.handleSelect} />
+                <Chat chatId={x} onSelect={this.handleSelect} />
             </ListItem>
         ));
 

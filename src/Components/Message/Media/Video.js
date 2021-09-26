@@ -8,9 +8,9 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import classNames from 'classnames';
-import PlayArrowIcon from '@material-ui/icons/PlayArrow';
-import { getFitSize, getDurationString } from '../../../Utils/Common';
-import { getFileSize } from '../../../Utils/File';
+import PlayArrowIcon from '../../../Assets/Icons/PlayArrow';
+import { getFitSize, getDurationString, getPhotoSize } from '../../../Utils/Common';
+import { getFileSize, getSrc } from '../../../Utils/File';
 import { isBlurredThumbnail } from '../../../Utils/Media';
 import { PHOTO_DISPLAY_SIZE, PHOTO_SIZE } from '../../../Constants';
 import FileStore from '../../../Stores/FileStore';
@@ -22,7 +22,7 @@ class Video extends React.Component {
     }
 
     componentWillUnmount() {
-        FileStore.removeListener('clientUpdateVideoThumbnailBlob', this.onClientUpdateVideoThumbnailBlob);
+        FileStore.off('clientUpdateVideoThumbnailBlob', this.onClientUpdateVideoThumbnailBlob);
     }
 
     onClientUpdateVideoThumbnailBlob = update => {
@@ -31,57 +31,80 @@ class Video extends React.Component {
 
         if (!thumbnail) return;
 
-        if (thumbnail.photo && thumbnail.photo.id === fileId) {
-            this.forceUpdate();
-        }
+        const { file } = thumbnail;
+        if (file && file.id !== fileId) return;
+
+        this.forceUpdate();
     };
 
     render() {
-        const { displaySize, openMedia } = this.props;
-        const { thumbnail, video, width, height, duration } = this.props.video;
+        const { displaySize, stretch, openMedia, title, caption, type, style } = this.props;
+        const { minithumbnail, thumbnail, video, width, height, duration } = this.props.video;
 
-        const fitPhotoSize = getFitSize(thumbnail || { width: width, height: height }, displaySize);
+        const sizes = [...(thumbnail ? [thumbnail] : []), { width, height }];
+        const photoSize = getPhotoSize(sizes, displaySize);
+        const fitPhotoSize = getFitSize(photoSize, displaySize, stretch);
         if (!fitPhotoSize) return null;
 
-        const style = {
-            width: fitPhotoSize.width,
-            height: fitPhotoSize.height
+        const videoStyle = {
+            background: 'black',
+            minWidth: stretch ? fitPhotoSize.width : null,
+            width: !stretch ? fitPhotoSize.width : null,
+            height: fitPhotoSize.height,
+            ...style
         };
 
-        const file = thumbnail ? thumbnail.photo : null;
-        const blob = file ? FileStore.getBlob(file.id) || file.blob : null;
-        const src = FileStore.getBlobUrl(blob);
-        const isBlurred = isBlurredThumbnail(thumbnail);
+        const miniSrc = minithumbnail ? 'data:image/jpeg;base64, ' + minithumbnail.data : null;
+        const thumbnailSrc = getSrc(thumbnail ? thumbnail.file : null);
+        const isBlurred = isBlurredThumbnail(thumbnail, displaySize);
 
         return (
-            <div className='video' style={style} onClick={openMedia}>
-                <img
-                    className={classNames('video-preview', { 'media-blurred': isBlurred })}
-                    style={style}
-                    src={src}
-                    alt=''
-                />
+            <div
+                className={classNames('video', {
+                    'video-big': type === 'message',
+                    'video-title': title,
+                    'video-caption': caption,
+                    pointer: openMedia
+                })}
+                style={videoStyle}
+                onClick={openMedia}>
+                {miniSrc && (
+                    <img
+                        className={classNames('video-preview', 'media-mini-blurred')}
+                        src={miniSrc}
+                        alt=''
+                    />
+                )}
+                {thumbnailSrc && (
+                    <img
+                        className={classNames('video-thumbnail', { 'media-blurred': isBlurred })}
+                        src={thumbnailSrc}
+                        alt=''
+                    />
+                )}
                 <div className='video-play'>
                     <PlayArrowIcon />
                 </div>
-                <div className='video-meta'>{getDurationString(duration) + ' ' + getFileSize(video)}</div>
+                <div className='media-top-meta'>{getDurationString(duration) + ' ' + getFileSize(video)}</div>
             </div>
         );
     }
 }
 
 Video.propTypes = {
-    chatId: PropTypes.number.isRequired,
-    messageId: PropTypes.number.isRequired,
+    chatId: PropTypes.number,
+    messageId: PropTypes.number,
     video: PropTypes.object.isRequired,
-    openMedia: PropTypes.func.isRequired,
+    openMedia: PropTypes.func,
     size: PropTypes.number,
-    displaySize: PropTypes.number
+    displaySize: PropTypes.number,
+    stretch: PropTypes.bool
 };
 
 Video.defaultProps = {
     size: PHOTO_SIZE,
-    displaySize: PHOTO_DISPLAY_SIZE
+    displaySize: PHOTO_DISPLAY_SIZE,
+    stretch: false
 };
 
 export default Video;

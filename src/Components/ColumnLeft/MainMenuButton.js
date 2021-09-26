@@ -6,50 +6,59 @@
  */
 
 import React from 'react';
+import { withTranslation } from 'react-i18next';
 import IconButton from '@material-ui/core/IconButton';
-import MenuIcon from '@material-ui/icons/Menu';
+import ListItemIcon from '@material-ui/core/ListItemIcon';
+import ListItemText from '@material-ui/core/ListItemText';
 import Menu from '@material-ui/core/Menu';
 import MenuItem from '@material-ui/core/MenuItem';
-import withStyles from '@material-ui/core/styles/withStyles';
-import { withTranslation } from 'react-i18next';
-import { compose } from 'recompose';
-import ThemePicker from './ThemePicker';
-import LanguagePicker from './LanguagePicker';
-import { update } from '../../registerServiceWorker';
+import SpeedDialIcon from '@material-ui/lab/SpeedDialIcon';
+import ArrowBackIcon from '../../Assets/Icons/Back';
+import ChannelIcon from '../../Assets/Icons/Channel';
+import CloseIcon from '../../Assets/Icons/Close';
+import ArchiveIcon from '../../Assets/Icons/Archive';
+import SearchIcon from '../../Assets/Icons/Search';
+import MenuIcon from '../../Assets/Icons/Menu';
+import GroupIcon from '../../Assets/Icons/Group';
+import HelpIcon from '../../Assets/Icons/Help';
+import SavedIcon from '../../Assets/Icons/Saved';
+import SettingsIcon from '../../Assets/Icons/Settings';
+import UserIcon from '../../Assets/Icons/User';
 import { isAuthorizationReady } from '../../Utils/Common';
-import ApplicationStore from '../../Stores/ApplicationStore';
-
-const styles = {
-    menuIconButton: {
-        margin: '8px -2px 8px 12px'
-    },
-    searchIconButton: {
-        margin: '8px 12px 8px 0'
-    }
-};
-
-const menuAnchorOrigin = {
-    vertical: 'bottom',
-    horizontal: 'left'
-};
+import { openArchive, openChat, searchChat } from '../../Actions/Client';
+import { openSupportChat } from '../../Actions/Chat';
+import AppStore from '../../Stores/ApplicationStore';
+import CacheStore from '../../Stores/CacheStore';
+import UserStore from '../../Stores/UserStore';
+import TdLibController from '../../Controllers/TdLibController';
+import './MainMenuButton.css';
 
 class MainMenuButton extends React.Component {
     constructor(props) {
         super(props);
 
         this.state = {
-            authorizationState: ApplicationStore.getAuthorizationState(),
-            anchorEl: null
+            authorizationState: AppStore.getAuthorizationState(),
+            anchorEl: null,
+            isSmallWidth: AppStore.isSmallWidth
         };
     }
 
     componentDidMount() {
-        ApplicationStore.on('updateAuthorizationState', this.onUpdateAuthorizationState);
+        AppStore.on('updateAuthorizationState', this.onUpdateAuthorizationState);
+        AppStore.on('clientUpdatePageWidth', this.onClientUpdatePageWidth);
     }
 
     componentWillUnmount() {
-        ApplicationStore.removeListener('updateAuthorizationState', this.onUpdateAuthorizationState);
+        AppStore.off('updateAuthorizationState', this.onUpdateAuthorizationState);
+        AppStore.off('clientUpdatePageWidth', this.onClientUpdatePageWidth);
     }
+
+    onClientUpdatePageWidth = update => {
+        const { isSmallWidth } = update;
+
+        this.setState({ isSmallWidth });
+    };
 
     onUpdateAuthorizationState = update => {
         this.setState({ authorizationState: update.authorization_state });
@@ -66,41 +75,101 @@ class MainMenuButton extends React.Component {
         this.setState({ anchorEl: null });
     };
 
-    handleLogOut = () => {
-        this.handleMenuClose();
-
-        this.props.onLogOut();
-    };
-
     handleCheckUpdates = async () => {
         this.handleMenuClose();
 
-        await update();
+        //await update();
     };
 
-    handleAppearance = event => {
+    handleNewChannel = event => {
         this.handleMenuClose();
 
-        this.themePicker.open();
+        TdLibController.clientUpdate({
+            '@type': 'clientUpdateNewChannel',
+            open: true
+        });
     };
 
-    handleLanguage = event => {
+    handleNewGroup = event => {
         this.handleMenuClose();
 
-        this.languagePicker.open();
+        TdLibController.clientUpdate({
+            '@type': 'clientUpdateNewGroup',
+            open: true
+        });
     };
 
-    setRef = ref => {
-        console.log(this);
-        this.languagePicker = ref;
+    handleContacts = event => {
+        this.handleMenuClose();
+
+        TdLibController.clientUpdate({
+            '@type': 'clientUpdateContacts',
+            open: true
+        });
+    };
+
+    handleArchived = event => {
+        this.handleMenuClose();
+
+        openArchive();
+    };
+
+    handleSaved = async event => {
+        this.handleMenuClose();
+
+        let chat = CacheStore.cache ? CacheStore.cache.meChat : null;
+        if (!chat) {
+            chat = await TdLibController.send({
+                '@type': 'createPrivateChat',
+                user_id: UserStore.getMyId(),
+                force: false
+            });
+        }
+
+        if (!chat) return;
+
+        openChat(chat.id);
+    };
+
+    handleSettings = async event => {
+        this.handleMenuClose();
+
+        let chat = CacheStore.cache ? CacheStore.cache.meChat : null;
+        if (!chat) {
+            chat = await TdLibController.send({
+                '@type': 'createPrivateChat',
+                user_id: UserStore.getMyId(),
+                force: false
+            });
+        }
+
+        if (!chat) return;
+
+        TdLibController.clientUpdate({
+            '@type': 'clientUpdateSettings',
+            open: true,
+            chatId: chat.id
+        });
+    };
+
+    handleHelp = async event => {
+        this.handleMenuClose();
+
+        openSupportChat();
+    };
+
+    handleSearch = () => {
+        this.handleMenuClose();
+
+        searchChat(0);
     };
 
     render() {
-        const { classes, t } = this.props;
-        const { anchorEl, authorizationState } = this.state;
+        const { t, timeout, popup, showClose, onClose } = this.props;
+        const { anchorEl, authorizationState, isSmallWidth } = this.state;
 
-        const mainMenuControl = isAuthorizationReady(authorizationState) ? (
-            <>
+        const mainMenuControl =
+            !showClose && isAuthorizationReady(authorizationState) ? (
                 <Menu
                     id='main-menu'
                     anchorEl={anchorEl}
@@ -109,36 +178,85 @@ class MainMenuButton extends React.Component {
                     getContentAnchorEl={null}
                     disableAutoFocusItem
                     disableRestoreFocus={true}
-                    anchorOrigin={menuAnchorOrigin}>
-                    <MenuItem onClick={this.handleCheckUpdates}>{t('UpdateTelegram')}</MenuItem>
-                    <MenuItem onClick={this.handleAppearance}>{t('Appearance')}</MenuItem>
-                    <MenuItem onClick={this.handleLanguage}>{t('Language')}</MenuItem>
-                    <MenuItem onClick={this.handleLogOut}>{t('LogOut')}</MenuItem>
+                    anchorOrigin={{
+                        vertical: 'bottom',
+                        horizontal: 'left'
+                    }}>
+                    <MenuItem onClick={this.handleNewChannel}>
+                        <ListItemIcon>
+                            <ChannelIcon />
+                        </ListItemIcon>
+                        <ListItemText primary={t('NewChannel')} />
+                    </MenuItem>
+                    <MenuItem onClick={this.handleNewGroup}>
+                        <ListItemIcon>
+                            <GroupIcon />
+                        </ListItemIcon>
+                        <ListItemText primary={t('NewGroup')} />
+                    </MenuItem>
+                    { isSmallWidth && (
+                        <MenuItem onClick={this.handleSearch}>
+                            <ListItemIcon>
+                                <SearchIcon />
+                            </ListItemIcon>
+                            <ListItemText primary={t('Search')} />
+                        </MenuItem>
+                    )}
+                    <MenuItem onClick={this.handleContacts}>
+                        <ListItemIcon>
+                            <UserIcon />
+                        </ListItemIcon>
+                        <ListItemText primary={t('Contacts')} />
+                    </MenuItem>
+                    <MenuItem onClick={this.handleArchived}>
+                        <ListItemIcon>
+                            <ArchiveIcon />
+                        </ListItemIcon>
+                        <ListItemText primary={t('Archived')} />
+                    </MenuItem>
+                    <MenuItem onClick={this.handleSaved}>
+                        <ListItemIcon>
+                            <SavedIcon />
+                        </ListItemIcon>
+                        <ListItemText primary={t('Saved')} />
+                    </MenuItem>
+                    <MenuItem onClick={this.handleSettings}>
+                        <ListItemIcon>
+                            <SettingsIcon />
+                        </ListItemIcon>
+                        <ListItemText primary={t('Settings')} />
+                    </MenuItem>
+                    <MenuItem onClick={this.handleHelp}>
+                        <ListItemIcon>
+                            <HelpIcon />
+                        </ListItemIcon>
+                        <ListItemText primary={t('SettingsHelp')} />
+                    </MenuItem>
                 </Menu>
-            </>
-        ) : null;
+            ) : null;
+
+        const closeIcon = popup
+            ? <CloseIcon/>
+            : <ArrowBackIcon/>;
 
         return (
             <>
                 <IconButton
                     aria-owns={anchorEl ? 'simple-menu' : null}
                     aria-haspopup='true'
-                    className={classes.menuIconButton}
+                    className='header-left-button main-menu-button'
                     aria-label='Menu'
-                    onClick={this.handleMenuOpen}>
-                    <MenuIcon />
+                    onClick={showClose ? onClose : this.handleMenuOpen}>
+                    { timeout
+                        ? (<SpeedDialIcon open={showClose} openIcon={<ArrowBackIcon />} icon={<MenuIcon />} />)
+                        : (<>{showClose ? closeIcon : <MenuIcon />}</>)
+                    }
+
                 </IconButton>
                 {mainMenuControl}
-                <ThemePicker innerRef={ref => (this.themePicker = ref)} />
-                <LanguagePicker ref={ref => (this.languagePicker = ref)} />
             </>
         );
     }
 }
 
-const enhance = compose(
-    withTranslation(),
-    withStyles(styles, { withTheme: true })
-);
-
-export default enhance(MainMenuButton);
+export default withTranslation()(MainMenuButton);

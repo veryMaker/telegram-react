@@ -7,83 +7,80 @@
 
 import React from 'react';
 import PropTypes from 'prop-types';
-import withStyles from '@material-ui/core/styles/withStyles';
-import { withTranslation } from 'react-i18next';
-import { compose } from 'recompose';
-import {
-    Dialog,
-    DialogActions,
-    DialogContent,
-    DialogContentText,
-    DialogTitle,
-    Button,
-    IconButton
-} from '@material-ui/core';
-import SearchIcon from '@material-ui/icons/Search';
-import CloseIcon from '@material-ui/icons/Close';
-import SpeedDialIcon from '@material-ui/lab/SpeedDialIcon';
 import MainMenuButton from './MainMenuButton';
-import { debounce, isAuthorizationReady, throttle } from '../../Utils/Common';
-import ApplicationStore from '../../Stores/ApplicationStore';
-import TdLibController from '../../Controllers/TdLibController';
+import SearchInput from './Search/SearchInput';
+import { isAuthorizationReady } from '../../Utils/Common';
+import AppStore from '../../Stores/ApplicationStore';
 import '../ColumnMiddle/Header.css';
-
-const styles = {
-    headerIconButton: {
-        margin: '8px 12px 8px 0'
-    },
-    dialogText: {
-        whiteSpace: 'pre-wrap'
-    }
-};
 
 class DialogsHeader extends React.Component {
     constructor(props) {
         super(props);
 
-        this.searchInput = React.createRef();
+        this.searchInputRef = React.createRef();
 
         this.state = {
-            authorizationState: ApplicationStore.getAuthorizationState(),
+            authorizationState: AppStore.getAuthorizationState(),
             open: false
         };
+    }
 
-        this.handleInput = debounce(this.handleInput, 250);
+    setInitQuery(query) {
+        const { onSearchTextChange } = this.props;
+
+        const searchInput = this.searchInputRef.current;
+        if (searchInput) {
+            searchInput.innerText = query;
+            if (searchInput.childNodes.length > 0) {
+                const range = document.createRange();
+                range.setStart(searchInput.childNodes[0], searchInput.childNodes[0].length);
+                range.collapse(true);
+
+                const selection = window.getSelection();
+                selection.removeAllRanges();
+                selection.addRange(range);
+            }
+            searchInput.focus();
+            onSearchTextChange(query);
+        }
     }
 
     componentDidUpdate(prevProps, prevState, snapshot) {
-        if (this.props.openSearch && this.props.openSearch !== prevProps.openSearch) {
-            setTimeout(() => {
-                if (this.searchInput.current) {
-                    this.searchInput.current.focus();
+        const { openSearch } = this.props;
+
+        if (openSearch !== prevProps.openSearch) {
+            if (openSearch) {
+                this.focusInput();
+            } else {
+                const searchInput = this.searchInputRef.current;
+                if (searchInput) {
+                    searchInput.innerText = null;
                 }
-            }, 250);
+            }
+        }
+    }
+
+    focusInput() {
+        const searchInput = this.searchInputRef.current;
+        if (searchInput) {
+            searchInput.focus();
         }
     }
 
     componentDidMount() {
-        ApplicationStore.on('updateAuthorizationState', this.onUpdateAuthorizationState);
+        if (this.props.popup) {
+            this.focusInput();
+        }
+
+        AppStore.on('updateAuthorizationState', this.onUpdateAuthorizationState);
     }
 
     componentWillUnmount() {
-        ApplicationStore.removeListener('updateAuthorizationState', this.onUpdateAuthorizationState);
+        AppStore.off('updateAuthorizationState', this.onUpdateAuthorizationState);
     }
 
     onUpdateAuthorizationState = update => {
         this.setState({ authorizationState: update.authorization_state });
-    };
-
-    handleLogOut = () => {
-        this.setState({ open: true });
-    };
-
-    handleDone = () => {
-        this.handleClose();
-        TdLibController.logOut();
-    };
-
-    handleClose = () => {
-        this.setState({ open: false });
     };
 
     handleSearch = () => {
@@ -94,85 +91,51 @@ class DialogsHeader extends React.Component {
         onSearch(!openSearch);
     };
 
-    handleKeyDown = event => {
-        if (event.keyCode === 13) {
-            event.preventDefault();
+    handleSearchTextChange = () => {
+        const { onSearchTextChange } = this.props;
+
+        const element = this.searchInputRef.current;
+        if (!element) return;
+
+        const { innerHTML } = element;
+        if (innerHTML === '<br>' || innerHTML === '<div><br></div>') {
+            element.innerHTML = null;
         }
+        const { innerText } = element;
+
+        onSearchTextChange(innerText);
     };
 
-    handleKeyUp = () => {
-        const innerText = this.searchInput.current.innerText;
-        const innerHTML = this.searchInput.current.innerHTML;
-
-        if (innerHTML && (innerHTML === '<br>' || innerHTML === '<div><br></div>')) {
-            this.searchInput.current.innerHTML = '';
-        }
-
-        ApplicationStore.emit('clientUpdateSearchText', { text: innerText });
+    handleCloseSearch = () => {
+        this.handleSearch();
     };
 
-    handlePaste = event => {
-        const plainText = event.clipboardData.getData('text/plain');
-        if (plainText) {
-            event.preventDefault();
-            document.execCommand('insertHTML', false, plainText);
-        }
+    handleFocus = () => {
+        this.handleSearch();
     };
 
     render() {
-        const { classes, onClick, openSearch, t } = this.props;
-        const { open } = this.state;
+        const { openSearch, timeout, popup } = this.props;
 
-        const confirmLogoutDialog = open ? (
-            <Dialog transitionDuration={0} open={open} onClose={this.handleClose} aria-labelledby='form-dialog-title'>
-                <DialogTitle id='form-dialog-title'>{t('AppName')}</DialogTitle>
-                <DialogContent>
-                    <DialogContentText className={classes.dialogText}>{t('AreYouSureLogout')}</DialogContentText>
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={this.handleClose} color='primary'>
-                        {t('Cancel')}
-                    </Button>
-                    <Button onClick={this.handleDone} color='primary'>
-                        {t('Ok')}
-                    </Button>
-                </DialogActions>
-            </Dialog>
-        ) : null;
+        let content = null;
+        let showBack = false;
+        if (openSearch) {
+            showBack = true;
+            content = (
+                <SearchInput
+                    inputRef={this.searchInputRef}
+                    onChange={this.handleSearchTextChange}
+                    onClose={this.handleCloseSearch}
+                />
+            );
+        } else {
+            content = <SearchInput inputRef={this.searchInputRef} onFocus={this.handleFocus} />;
+        }
 
         return (
             <div className='header-master'>
-                {!openSearch ? (
-                    <>
-                        <MainMenuButton onLogOut={this.handleLogOut} />
-                        {confirmLogoutDialog}
-                        <div className='header-status grow cursor-pointer' onClick={onClick}>
-                            <span className='header-status-content'>{t('AppName')}</span>
-                        </div>
-                    </>
-                ) : (
-                    <>
-                        <div className='header-search-input grow'>
-                            <div
-                                id='header-search-inputbox'
-                                ref={this.searchInput}
-                                placeholder={t('Search')}
-                                key={Date()}
-                                contentEditable
-                                suppressContentEditableWarning
-                                onKeyDown={this.handleKeyDown}
-                                onKeyUp={this.handleKeyUp}
-                                onPaste={this.handlePaste}
-                            />
-                        </div>
-                    </>
-                )}
-                <IconButton
-                    className={classes.headerIconButton}
-                    aria-label={t('Search')}
-                    onMouseDown={this.handleSearch}>
-                    <SpeedDialIcon open={openSearch} icon={<SearchIcon />} openIcon={<CloseIcon />} />
-                </IconButton>
+                <MainMenuButton timeout={timeout} showClose={showBack} popup={popup} onClose={this.handleCloseSearch} />
+                {content}
             </div>
         );
     }
@@ -180,14 +143,11 @@ class DialogsHeader extends React.Component {
 
 DialogsHeader.propTypes = {
     openSearch: PropTypes.bool.isRequired,
-    onClick: PropTypes.func.isRequired,
+    onClick: PropTypes.func,
     onSearch: PropTypes.func.isRequired,
-    onSearchTextChange: PropTypes.func.isRequired
+    onSearchTextChange: PropTypes.func.isRequired,
+    timeout: PropTypes.bool,
+    popup: PropTypes.bool
 };
 
-const enhance = compose(
-    withTranslation(),
-    withStyles(styles)
-);
-
-export default enhance(DialogsHeader);
+export default DialogsHeader;

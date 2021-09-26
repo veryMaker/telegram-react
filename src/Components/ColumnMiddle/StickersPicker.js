@@ -8,12 +8,17 @@
 import React from 'react';
 import * as ReactDOM from 'react-dom';
 import PropTypes from 'prop-types';
+import classNames from 'classnames';
+import { compose } from '../../Utils/HOC';
+import { withRestoreRef, withSaveRef } from '../../Utils/HOC';
+import { withTranslation } from 'react-i18next';
 import StickerSet from './StickerSet';
 import StickersPickerHeader from './StickersPickerHeader';
 import { debounce, throttle } from '../../Utils/Common';
 import { loadStickerContent, loadStickerSetContent } from '../../Utils/File';
 import { getNeighborStickersFromSets, getStickers } from '../../Utils/Media';
 import FileStore from '../../Stores/FileStore';
+import StickerStore from '../../Stores/StickerStore';
 import TdLibController from '../../Controllers/TdLibController';
 import './StickersPicker.css';
 
@@ -26,6 +31,7 @@ class StickersPicker extends React.Component {
         this.loadedSets = new Map();
 
         this.state = {
+            recent: null,
             stickerSets: null,
             sets: [],
             headerStickers: [],
@@ -38,7 +44,11 @@ class StickersPicker extends React.Component {
     }
 
     shouldComponentUpdate(nextProps, nextState, nextContext) {
-        const { position, stickerSets, sets, showPreview } = this.state;
+        const { position, recent, stickerSets, sets, showPreview } = this.state;
+
+        if (nextState.recent !== recent) {
+            return true;
+        }
 
         if (nextState.stickerSets !== stickerSets) {
             return true;
@@ -59,12 +69,59 @@ class StickersPicker extends React.Component {
         return false;
     }
 
+    componentDidMount() {
+        StickerStore.on('updateInstalledStickerSets', this.onUpdateInstalledStickerSets);
+        StickerStore.on('updateRecentStickers', this.onUpdateRecentStickers);
+    }
+
+    componentWillUnmount() {
+        StickerStore.off('updateInstalledStickerSets', this.onUpdateInstalledStickerSets);
+        StickerStore.off('updateRecentStickers', this.onUpdateRecentStickers);
+    }
+
+    stop() {
+
+    }
+
+    onUpdateInstalledStickerSets = update => {
+        const { is_masks, sticker_set_ids } = update;
+        if (!is_masks) return;
+
+        this.filterSets();
+    };
+
+    onUpdateRecentStickers = update => {
+        this.reloadRecentContent();
+    };
+
+    filterSets(sticker_set_ids) {
+        const { sets, stickerSets } = this.state;
+    }
+
+    async reloadRecentContent() {
+        const recent = await TdLibController.send({
+            '@type': 'getRecentStickers',
+            is_attached: false
+        });
+
+        this.setState({
+            recent
+        });
+    }
+
     scrollTop = () => {
         this.scrollRef.current.scrollTop = 0;
     };
 
-    loadContent = async (stickerSets, sets) => {
-        if (this.state.stickerSets) return;
+    loadContent = async (recent, stickerSets, sets) => {
+        // console.log('[sp] loadContent', recent, stickerSets, sets);
+
+        if (!recent) {
+            recent = await TdLibController.send({
+                '@type': 'getRecentStickers',
+                is_attached: false
+            });
+        }
 
         if (!sets) {
             const result = await TdLibController.send({
@@ -92,9 +149,12 @@ class StickersPicker extends React.Component {
             }
             return preview;
         }, []);
+
         this.setState({
+            recent,
             stickerSets,
             sets: slicedSets,
+            fullSets: sets,
             headerStickers
         });
         this.setsLength = slicedSets.length;
@@ -109,6 +169,7 @@ class StickersPicker extends React.Component {
     };
 
     loadInViewContent = (padding = 0) => {
+        // console.log('[sp] loadInViewContent');
         const scroll = this.scrollRef.current;
 
         const { sets } = this.state;
@@ -146,23 +207,38 @@ class StickersPicker extends React.Component {
     updatePosition = () => {
         const scroll = this.scrollRef.current;
 
-        const { sets } = this.state;
+        const { recent, sets } = this.state;
         let minDiff = scroll.scrollHeight;
         let position = 0;
-        let firstOffsetTop = 0;
-        sets.forEach((x, pos) => {
-            const element = this.itemsMap.get(x.id);
+        let startPosition = 0;
+        if (recent && recent.stickers.length > 0) {
+            startPosition = 1;
+            const element = this.itemsMap.get('recent');
             if (element) {
                 const node = ReactDOM.findDOMNode(element);
-                if (node) {
-                    firstOffsetTop = pos === 0 ? node.offsetTop : firstOffsetTop;
-
-                    const offsetTop = node.offsetTop - firstOffsetTop;
+                if (node && node.offsetTop <= scroll.scrollTop) {
+                    const offsetTop = node.offsetTop;
                     if (node && offsetTop <= scroll.scrollTop) {
                         const diff = Math.abs(scroll.scrollTop - offsetTop);
                         if (diff <= minDiff) {
                             minDiff = diff;
-                            position = pos;
+                            position = 0;
+                        }
+                    }
+                }
+            }
+        }
+        sets.forEach((x, pos) => {
+            const element = this.itemsMap.get(x.id);
+            if (element) {
+                const node = ReactDOM.findDOMNode(element);
+                if (node && node.offsetTop <= scroll.scrollTop) {
+                    const offsetTop = node.offsetTop;
+                    if (node) {
+                        const diff = Math.abs(scroll.scrollTop - offsetTop);
+                        if (diff <= minDiff) {
+                            minDiff = diff;
+                            position = startPosition + pos;
                         }
                     }
                 }
@@ -173,10 +249,20 @@ class StickersPicker extends React.Component {
             '@type': 'clientUpdateStickerSetPosition',
             position
         });
-        this.setState({ position });
     };
 
     handleScroll = async () => {
+        this.scrolling = true;
+        const now = new Date();
+        this.lastScrollTime = now;
+        if (this.scrollTimer) clearTimeout(this.scrollTimer);
+        this.scrollTimer = setTimeout(() => {
+            if (now !== this.lastScrollTime) return;
+
+            this.scrolling = false;
+        }, 250);
+
+        // console.log('[sp] handleScroll');
         //this.loadInViewContentOnScroll();
         this.loadInViewContentOnScrollEnd();
         this.updatePosition();
@@ -208,17 +294,18 @@ class StickersPicker extends React.Component {
             );
         });
 
-        const result = await Promise.all(promises).finally(() => (this.loadingChunk = false));
+        const result = await Promise.all(promises).finally(() => {
+            this.loadingChunk = false;
+        });
 
         this.setsLength += result.length;
-        let concatSets = sets.concat(result);
-        this.setState({ sets: concatSets });
+        this.setState({ sets: sets.concat(result) });
     };
 
     loadPreviewContent = stickerId => {
-        const { sets } = this.state;
+        const { recent, sets } = this.state;
 
-        const sticker = getStickers(sets).find(x => x.sticker.id === stickerId);
+        const sticker = getStickers([recent].concat(sets)).find(x => x.sticker.id === stickerId);
         if (!sticker) return;
 
         const store = FileStore.getStore();
@@ -231,8 +318,8 @@ class StickersPicker extends React.Component {
         });
     };
 
-    handleMouseOver = event => {
-        const stickerId = Number(event.target.dataset.stickerId);
+    handleMouseEnter = event => {
+        const stickerId = Number(event.currentTarget.dataset.stickerId);
         if (!stickerId) return;
 
         if (!this.mouseDown) return;
@@ -244,14 +331,14 @@ class StickersPicker extends React.Component {
         this.loadPreviewContent(stickerId);
 
         const { onPreview } = this.props;
-        const { sets } = this.state;
+        const { recent, sets } = this.state;
 
-        const sticker = getStickers(sets).find(x => x.sticker.id === stickerId);
+        const sticker = getStickers([recent].concat(sets)).find(x => x.sticker.id === stickerId);
         onPreview(sticker);
     };
 
     handleMouseDown = event => {
-        const stickerId = Number(event.target.dataset.stickerId);
+        const stickerId = Number(event.currentTarget.dataset.stickerId);
         if (!stickerId) return;
 
         this.mouseDownStickerId = stickerId;
@@ -263,9 +350,9 @@ class StickersPicker extends React.Component {
             if (timestamp === now) {
                 this.setState({ showPreview: true, cancelSend: true }, () => {
                     const { onPreview } = this.props;
-                    const { sets } = this.state;
+                    const { recent, sets } = this.state;
 
-                    const sticker = getStickers(sets).find(x => x.sticker.id === stickerId);
+                    const sticker = getStickers([recent].concat(sets)).find(x => x.sticker.id === stickerId);
                     onPreview(sticker);
                 });
             }
@@ -305,7 +392,10 @@ class StickersPicker extends React.Component {
         const { sets, stickerSets } = this.state;
         const { scrollRef } = this;
 
-        if (position < sets.length) {
+        if (position === -1) {
+            const scroll = scrollRef.current;
+            scroll.scrollTop = 0;
+        } else if (position < sets.length) {
             const element = this.itemsMap.get(sets[position].id);
             if (element) {
                 const node = ReactDOM.findDOMNode(element);
@@ -341,12 +431,29 @@ class StickersPicker extends React.Component {
         }
     };
 
-    render() {
-        const { position, stickerSets, sets, headerStickers } = this.state;
-        if (!stickerSets) return null;
+    handleDeleteRecent = () => {
+        TdLibController.send({
+            '@type': 'clearRecentStickers',
+            is_attached: false
+        });
+    };
 
-        if (!sets) return null;
-        if (!sets.length) return null;
+    handleDeleteStickerSet = id => {
+        TdLibController.send({
+            '@type': 'changeStickerSet',
+            set_id: id,
+            is_installed: false
+        });
+    };
+
+    render() {
+        const { t, style } = this.props;
+        const { recent, stickerSets, sets, headerStickers } = this.state;
+        // console.log('[sp] render', recent, stickerSets, sets);
+        // if (!stickerSets) return null;
+        //
+        // if (!sets) return null;
+        // if (!sets.length) return null;
 
         this.itemsMap.clear();
         const items = sets.map(x => (
@@ -356,14 +463,35 @@ class StickersPicker extends React.Component {
                 info={x}
                 onSelect={this.handleStickerSelect}
                 onMouseDown={this.handleMouseDown}
-                onMouseOver={this.handleMouseOver}
+                onMouseEnter={this.handleMouseEnter}
             />
         ));
 
+        const recentInfo =
+            recent && recent.stickers.length > 0
+                ? {
+                      stickers: recent.stickers,
+                      title: t('RecentStickers')
+                  }
+                : null;
+
         return (
-            <div className='stickers-picker'>
-                <StickersPickerHeader onSelect={this.handleSelectSet} stickers={headerStickers} />
-                <div ref={this.scrollRef} className='stickers-picker-scroll' onScroll={this.handleScroll}>
+            <div className='stickers-picker' style={style}>
+                <StickersPickerHeader
+                    recent={recentInfo}
+                    stickers={headerStickers}
+                    onSelect={this.handleSelectSet} />
+                <div ref={this.scrollRef} className={classNames('stickers-picker-scroll', 'scrollbars-hidden')} onScroll={this.handleScroll}>
+                    {Boolean(recentInfo) && (
+                        <StickerSet
+                            ref={el => this.itemsMap.set('recent', el)}
+                            info={recentInfo}
+                            onSelect={this.handleStickerSelect}
+                            onMouseDown={this.handleMouseDown}
+                            onMouseEnter={this.handleMouseEnter}
+                            onDeleteClick={this.handleDeleteRecent}
+                        />
+                    )}
                     {items}
                 </div>
             </div>
@@ -376,4 +504,10 @@ StickersPicker.propTypes = {
     onPreview: PropTypes.func.isRequired
 };
 
-export default StickersPicker;
+const enhance = compose(
+    withSaveRef(),
+    withTranslation(),
+    withRestoreRef()
+);
+
+export default enhance(StickersPicker);

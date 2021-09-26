@@ -6,28 +6,16 @@
  */
 
 import React from 'react';
-import PropTypes from 'prop-types';
-import classNames from 'classnames';
-import withStyles from '@material-ui/core/styles/withStyles';
-import AppInactiveControl from './Additional/AppInactiveControl';
+import AppInactive from './Additional/AppInactive';
 import Footer from './Footer';
-
-const styles = theme => ({
-    page: {
-        background: theme.palette.type === 'dark' ? theme.palette.background.default : '#FFFFFF',
-        color: theme.palette.text.primary
-    }
-});
 
 class InactivePage extends React.Component {
     render() {
-        const { classes } = this.props;
-
         return (
             <>
                 <div className='header-wrapper' />
-                <div className={classNames(classes.page, 'page')}>
-                    <AppInactiveControl />
+                <div className='page'>
+                    <AppInactive />
                 </div>
                 <Footer />
             </>
@@ -35,6 +23,4 @@ class InactivePage extends React.Component {
     }
 }
 
-InactivePage.propTypes = {};
-
-export default withStyles(styles)(InactivePage);
+export default InactivePage;

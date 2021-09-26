@@ -6,9 +6,10 @@
  */
 
 import React, { Component } from 'react';
-import Cookies from 'universal-cookie';
-import { compose } from 'recompose';
-import withStyles from '@material-ui/core/styles/withStyles';
+import { compose } from './Utils/HOC';
+import withLanguage from './Language';
+import withTelegramTheme from './Theme';
+import withTheme from '@material-ui/core/styles/withTheme';
 import { withTranslation } from 'react-i18next';
 import Button from '@material-ui/core/Button';
 import Dialog from '@material-ui/core/Dialog';
@@ -17,79 +18,212 @@ import DialogContent from '@material-ui/core/DialogContent';
 import DialogContentText from '@material-ui/core/DialogContentText';
 import DialogTitle from '@material-ui/core/DialogTitle';
 import packageJson from '../package.json';
-import withLanguage from './Language';
-import withTheme from './Theme';
-import AuthFormControl from './Components/Auth/AuthFormControl';
+import AuthForm from './Components/Auth/AuthForm';
 import InactivePage from './Components/InactivePage';
-import StubPage from './Components/StubPage';
+import NativeAppPage from './Components/NativeAppPage';
+// import StubPage from './Components/StubPage';
 import registerServiceWorker from './registerServiceWorker';
-import { OPTIMIZATIONS_FIRST_START } from './Constants';
-import ChatStore from './Stores/ChatStore';
+import { isMobile } from './Utils/Common';
+import { loadData } from './Utils/Phone';
+import KeyboardManager, { KeyboardHandler } from './Components/Additional/KeyboardManager';
+import { openChatList, openPinnedChat } from './Actions/Chat';
+import { modalManager } from './Utils/Modal';
+import { clearSelection, editMessage, replyMessage, searchChat } from './Actions/Client';
+import { isSafari } from './Utils/Common';
+import { OPTIMIZATIONS_FIRST_START, STORAGE_REGISTER_KEY, STORAGE_REGISTER_TEST_KEY } from './Constants';
 import UserStore from './Stores/UserStore';
-import ApplicationStore from './Stores/ApplicationStore';
+import AppStore from './Stores/ApplicationStore';
+import AuthorizationStore from './Stores/AuthorizationStore';
+import FilterStore from './Stores/FilterStore';
+import MessageStore from './Stores/MessageStore';
 import TdLibController from './Controllers/TdLibController';
 import './TelegramApp.css';
 
+// import MainPage from './Components/MainPage';
 const MainPage = React.lazy(() => import('./Components/MainPage'));
-
-const styles = theme => ({
-    '@global': {
-        a: {
-            color: theme.palette.primary.main
-        },
-        code: {
-            color: theme.palette.primary.dark
-        }
-    }
-});
 
 class TelegramApp extends Component {
     constructor(props) {
         super(props);
 
         console.log(`Start Telegram Web ${packageJson.version}`);
+        console.log('[auth] ctor', props.location);
 
         this.state = {
+            prevAuthorizationState: AuthorizationStore.current,
             authorizationState: null,
+            tdlibDatabaseExists: false,
             inactive: false,
-            fatalError: false
+            fatalError: false,
+            nativeMobile: isMobile(),
+            isSmall: window.innerWidth < 800
         };
+
+        this.replyMessageId = 0;
+        this.editMessageId = 0;
+        this.keyboardHandler = new KeyboardHandler(this.handleKeyDown);
+        this.keyMap = new Map();
+
+        document.addEventListener('keyup', event => {
+            this.keyMap.delete(event.key);
+        });
     }
 
-    componentWillMount() {
-        const { location } = this.props;
+    handleKeyDown = async event => {
+        const { altKey, ctrlKey, keyCode, key, metaKey, repeat, shiftKey, isComposing } = event;
 
-        TdLibController.init(location);
+        this.keyMap.set(key, key);
+
+        const { chatList } = FilterStore;
+        const { authorizationState, chatId } = AppStore;
+        if (!authorizationState) return;
+        if (authorizationState['@type'] !== 'authorizationStateReady') return;
+        if (this.keyMap.size > 3) return;
+
+        if (modalManager.modals.length > 0) {
+            return;
+        }
+
+        if (event.isComposing) {
+            return;
+        }
+
+        switch (key) {
+            case 'Escape': {
+                if (!altKey && !ctrlKey && !metaKey && !shiftKey && !repeat) {
+                    // console.log('[keydown] esc', this.editMessageId, this.replyMessageId);
+                    if (this.editMessageId) {
+                        editMessage(chatId, 0);
+                        return;
+                    } else if (this.replyMessageId) {
+                        replyMessage(chatId, 0);
+                        return;
+                    } else if (MessageStore.selectedItems.size > 0) {
+                        clearSelection();
+                        return;
+                    } else if (chatId) {
+                        TdLibController.setChatId(0);
+                        return;
+                    } else if (chatList && chatList['@type'] !== 'chatListMain') {
+                        openChatList({ '@type': 'chatListMain' });
+                        return;
+                    }
+
+                    // open search if no one dialog opened
+                    searchChat(0, null);
+
+                    event.preventDefault();
+                    event.stopPropagation();
+                }
+                break;
+            }
+            case '0': {
+                if (altKey && ctrlKey && !metaKey && !shiftKey && !repeat) {
+                    if (this.editMessageId) return;
+                    if (this.replyMessageId) return;
+
+                    const chat = await TdLibController.send({
+                        '@type': 'createPrivateChat',
+                        user_id: UserStore.getMyId(),
+                        force: true
+                    });
+
+                    if (!chat) return;
+
+                    TdLibController.setChatId(chat.id);
+                    event.preventDefault();
+                    event.stopPropagation();
+                }
+                break;
+            }
+            case '1':
+            case '2':
+            case '3':
+            case '4':
+            case '5': {
+                if (altKey && ctrlKey && !metaKey && !shiftKey && !repeat) {
+                    if (this.editMessageId) return;
+                    if (this.replyMessageId) return;
+
+                    openPinnedChat(Number(key) - 1);
+                    event.preventDefault();
+                    event.stopPropagation();
+                }
+                break;
+            }
+        }
+    };
+
+    componentWillMount() {
+        TdLibController.init();
     }
 
     componentDidMount() {
-        TdLibController.addListener('update', this.onUpdate);
+        setTimeout(() => loadData(), 1500);
+        TdLibController.on('update', this.onUpdate);
 
-        ApplicationStore.on('updateAuthorizationState', this.onUpdateAuthorizationState);
-        ApplicationStore.on('clientUpdateAppInactive', this.onClientUpdateAppInactive);
-        ApplicationStore.on('updateFatalError', this.onUpdateFatalError);
+        AppStore.on('clientUpdateAppInactive', this.onClientUpdateAppInactive);
+        AppStore.on('clientUpdateFocusWindow', this.onClientUpdateFocusWindow);
+        AppStore.on('clientUpdateTdLibDatabaseExists', this.onClientUpdateTdLibDatabaseExists);
+        AppStore.on('updateAuthorizationState', this.onUpdateAuthorizationState);
+        AppStore.on('updateFatalError', this.onUpdateFatalError);
+        MessageStore.on('clientUpdateEditMessage', this.onClientUpdateEditMessage);
+        MessageStore.on('clientUpdateReply', this.onClientUpdateReply);
+        KeyboardManager.add(this.keyboardHandler);
     }
 
     componentWillUnmount() {
-        TdLibController.removeListener('update', this.onUpdate);
+        TdLibController.off('update', this.onUpdate);
 
-        ApplicationStore.removeListener('updateAuthorizationState', this.onUpdateAuthorizationState);
-        ApplicationStore.removeListener('clientUpdateAppInactive', this.onClientUpdateAppInactive);
-        ApplicationStore.removeListener('updateFatalError', this.onUpdateFatalError);
+        AppStore.off('clientUpdateAppInactive', this.onClientUpdateAppInactive);
+        AppStore.off('clientUpdateFocusWindow', this.onClientUpdateFocusWindow);
+        AppStore.off('clientUpdateTdLibDatabaseExists', this.onClientUpdateTdLibDatabaseExists);
+        AppStore.off('updateAuthorizationState', this.onUpdateAuthorizationState);
+        AppStore.off('updateFatalError', this.onUpdateFatalError);
+        MessageStore.off('clientUpdateEditMessage', this.onClientUpdateEditMessage);
+        MessageStore.off('clientUpdateReply', this.onClientUpdateReply);
+        KeyboardManager.remove(this.keyboardHandler);
     }
+
+    onClientUpdateEditMessage = update => {
+        const { messageId } = update;
+
+        this.editMessageId = messageId;
+    };
+
+    onClientUpdateReply = update => {
+        const { messageId } = update;
+
+        this.replyMessageId = messageId;
+    };
+
+    onClientUpdateFocusWindow = update => {
+        this.keyMap.clear();
+    };
+
+    onClientUpdateTdLibDatabaseExists = update => {
+        const { exists } = update;
+
+        if (!exists) {
+            this.setState({
+                authorizationState: {
+                    '@type': 'authorizationStateWaitTdlib'
+                },
+                tdlibDatabaseExists: exists
+            });
+        }
+    };
 
     onUpdate = update => {
         if (OPTIMIZATIONS_FIRST_START) {
             if (!this.checkServiceWorker) {
                 this.checkServiceWorker = true;
 
-                const cookieEnabled = navigator.cookieEnabled;
-                if (cookieEnabled) {
-                    const cookies = new Cookies();
-                    const register = cookies.get('register');
-                    if (!register) {
-                        registerServiceWorker();
-                    }
+                const { useTestDC } = TdLibController.parameters;
+                const registerKey = useTestDC ? STORAGE_REGISTER_TEST_KEY : STORAGE_REGISTER_KEY;
+                const register = localStorage.getItem(registerKey);
+                if (!register) {
+                    registerServiceWorker();
                 }
             }
         }
@@ -100,13 +234,22 @@ class TelegramApp extends Component {
     };
 
     onUpdateAuthorizationState = update => {
-        const { authorization_state } = update;
+        const { authorization_state: authorizationState } = update;
+        let { prevAuthorizationState } = this.state;
 
-        this.setState({ authorizationState: authorization_state });
+        if (authorizationState && (
+            authorizationState['@type'] === 'authorizationStateLoggingOut' ||
+            authorizationState['@type'] === 'authorizationStateClosed')) {
+            prevAuthorizationState = null;
+        }
+
+        this.setState({
+            authorizationState,
+            prevAuthorizationState
+        });
 
         if (!window.hasFocus) return;
-        if (!authorization_state) return;
-        if (authorization_state['@type'] !== 'authorizationStateReady') return;
+        if (!authorizationState) return;
 
         TdLibController.send({
             '@type': 'setOption',
@@ -121,8 +264,23 @@ class TelegramApp extends Component {
 
     handleChangePhone = () => {
         this.setState({
-            authorizationState: { '@type': 'authorizationStateWaitPhoneNumber' }
+            changePhone: true
         });
+    };
+
+    handleRequestQRCode = () => {
+        const { changePhone, authorizationState } = this.state;
+
+        if (changePhone
+            && authorizationState
+            && authorizationState['@type'] === 'authorizationStateWaitOtherDeviceConfirmation') {
+            this.setState({ changePhone: false });
+        } else {
+            TdLibController.send({
+                '@type': 'requestQrCodeAuthentication',
+                other_user_ids: []
+            });
+        }
     };
 
     handleDragOver = event => {
@@ -145,45 +303,52 @@ class TelegramApp extends Component {
         TdLibController.send({ '@type': 'destroy' });
     };
 
-    handleKeyDown = event => {
-        //console.log('KeyDown', event);
-    };
-
     render() {
-        const { t } = this.props;
-        const { inactive, authorizationState, fatalError } = this.state;
+        const { t, theme } = this.props;
+        const { inactive, nativeMobile, fatalError } = this.state;
+        let { authorizationState: state, prevAuthorizationState, changePhone } = this.state;
+        if (changePhone) {
+            state = { '@type': 'authorizationStateWaitPhoneNumber' };
+        } else if (!state ||
+            state['@type'] === 'authorizationStateClosed' ||
+            state['@type'] === 'authorizationStateWaitEncryptionKey' ||
+            state['@type'] === 'authorizationStateWaitTdlibParameters'
+        ) {
+            if (prevAuthorizationState) {
+                state = prevAuthorizationState;
+            } else {
+                state = { '@type': 'authorizationStateWaitPhoneNumber' };
+            }
+        }
 
         const loading = t('Loading').replace('...', '');
-        let page = <StubPage title={loading} />;
+        let page = ( //<MainPage />;
+            <React.Suspense fallback={null}>
+                <MainPage />
+            </React.Suspense>
+        );
 
-        if (inactive) {
+        if (nativeMobile) {
+            page = <NativeAppPage />;
+        } else if (inactive) {
             page = <InactivePage />;
-        } else if (authorizationState) {
-            switch (authorizationState['@type']) {
+        } else if (state) {
+            switch (state['@type']) {
                 case 'authorizationStateClosed':
                 case 'authorizationStateClosing':
                 case 'authorizationStateLoggingOut':
                 case 'authorizationStateReady': {
-                    page = (
-                        <React.Suspense fallback={<StubPage title='' />}>
-                            <MainPage />
-                        </React.Suspense>
-                    );
                     break;
                 }
+                case 'authorizationStateWaitOtherDeviceConfirmation':
                 case 'authorizationStateWaitCode':
+                case 'authorizationStateWaitRegistration':
                 case 'authorizationStateWaitPassword':
                 case 'authorizationStateWaitPhoneNumber':
-                    page = (
-                        <AuthFormControl
-                            authorizationState={authorizationState}
-                            onChangePhone={this.handleChangePhone}
-                        />
-                    );
+                case 'authorizationStateWaitTdlib':
+                    page = <AuthForm authorizationState={state} onChangePhone={this.handleChangePhone} onRequestQRCode={this.handleRequestQRCode}/>;
                     break;
-                case 'authorizationStateWaitEncryptionKey': {
-                    break;
-                }
+                case 'authorizationStateWaitEncryptionKey':
                 case 'authorizationStateWaitTdlibParameters': {
                     break;
                 }
@@ -191,9 +356,16 @@ class TelegramApp extends Component {
         }
 
         return (
-            <div id='app' onDragOver={this.handleDragOver} onDrop={this.handleDrop} onKeyDown={this.handleKeyDown}>
+            <div
+                id='app'
+                className={theme.palette.type === 'dark' ? 'dark' : 'light'}
+                onDragOver={this.handleDragOver}
+                onDrop={this.handleDrop}
+                // onKeyDown={KeyboardManager.handleKeyDown} tabIndex={-1}
+            >
                 {page}
                 <Dialog
+                    manager={modalManager}
                     transitionDuration={0}
                     open={fatalError}
                     onClose={this.handleRefresh}
@@ -219,115 +391,11 @@ class TelegramApp extends Component {
     }
 }
 
-const keyMap = new Map();
-window.keyMap = keyMap;
-
-async function openPinnedChat(index) {
-    const chats = await TdLibController.send({
-        '@type': 'getChats',
-        offset_order: '9223372036854775807',
-        offset_chat_id: 0,
-        limit: 10
-    });
-
-    if (chats) {
-        let pinnedIndex = -1;
-        for (let i = 0; i < chats.chat_ids.length; i++) {
-            const chat = ChatStore.get(chats.chat_ids[i]);
-            if (chat && chat.is_pinned) {
-                pinnedIndex++;
-            }
-
-            if (pinnedIndex === index) {
-                TdLibController.setChatId(chat.id);
-                return;
-            }
-        }
-    }
-}
-
-document.addEventListener('keyup', event => {
-    keyMap.delete(event.key);
-    //console.log('keyup key=' + event.key, keyMap);
-});
-
-document.addEventListener('keydown', async event => {
-    keyMap.set(event.key, event.key);
-    //console.log('keydown key=' + event.key, event.altKey, event.ctrlKey, event, keyMap);
-
-    const { authorizationState } = ApplicationStore;
-    if (!authorizationState) return;
-    if (authorizationState['@type'] !== 'authorizationStateReady') return;
-    if (keyMap.size > 3) return;
-
-    if (event.altKey && event.ctrlKey) {
-        switch (event.key) {
-            case '0': {
-                event.preventDefault();
-                event.stopPropagation();
-
-                const chat = await TdLibController.send({
-                    '@type': 'createPrivateChat',
-                    user_id: UserStore.getMyId(),
-                    force: true
-                });
-
-                if (chat) {
-                    TdLibController.setChatId(chat.id);
-                }
-                break;
-            }
-            case '1': {
-                event.preventDefault();
-                event.stopPropagation();
-
-                openPinnedChat(0);
-                break;
-            }
-            case '2': {
-                event.preventDefault();
-                event.stopPropagation();
-
-                openPinnedChat(1);
-                break;
-            }
-            case '3': {
-                event.preventDefault();
-                event.stopPropagation();
-
-                openPinnedChat(2);
-                break;
-            }
-            case '4': {
-                event.preventDefault();
-                event.stopPropagation();
-
-                openPinnedChat(3);
-                break;
-            }
-            case '5': {
-                event.preventDefault();
-                event.stopPropagation();
-
-                openPinnedChat(4);
-                break;
-            }
-        }
-    }
-});
-
 window.hasFocus = true;
 
 // set offline on page lost focus
+// console.log('[ns] window.onblur attach');
 window.onblur = function() {
-    keyMap.clear();
-    //console.log('window.blur key', keyMap);
-
-    const { authorizationState } = ApplicationStore;
-
-    if (!authorizationState) return;
-    if (authorizationState['@type'] !== 'authorizationStateReady') return;
-
     window.hasFocus = false;
 
     TdLibController.clientUpdate({
@@ -337,14 +405,8 @@ window.onblur = function() {
 };
 
 // set online on page get focus
+// console.log('[ns] window.onfocus attach');
 window.onfocus = function() {
-    keyMap.clear();
-    //console.log('window.focus key', keyMap);
-    const { authorizationState } = ApplicationStore;
-
-    if (!authorizationState) return;
-    if (authorizationState['@type'] !== 'authorizationStateReady') return;
-
     window.hasFocus = true;
 
     TdLibController.clientUpdate({
@@ -359,11 +421,27 @@ window.onpopstate = function() {
     window.history.go(1);
 };
 
+async function unlockAudio() {
+    try {
+        const sound = new Audio('sounds/sound_a.mp3');
+        sound.autoplay = true;
+        sound.pause();
+    } finally {
+        document.body.removeEventListener('click', unlockAudio)
+        document.body.removeEventListener('touchstart', unlockAudio)
+    }
+}
+
+// if (isSafari()) {
+    document.body.addEventListener('click', unlockAudio);
+    document.body.addEventListener('touchstart', unlockAudio);
+// }
+
 const enhance = compose(
     withLanguage,
     withTranslation(),
-    withTheme,
-    withStyles(styles)
+    withTelegramTheme,
+    withTheme
 );
 
 export default enhance(TelegramApp);

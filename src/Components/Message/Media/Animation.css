@@ -6,19 +6,64 @@
  */
 
 .animation {
-    border-radius: 6px;
+    border-radius: 4px;
     transform: translateZ(0);
     overflow: hidden;
-    cursor: pointer;
     position: relative;
     color: white;
+    user-select: none;
+}
+
+.animation-message {
+    /*border-radius: 10px;*/
+    margin: -6px -9px;
+}
+
+.animation-picker {
+
+}
+
+.animation-title {
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+}
+
+.animation-caption {
+    margin-bottom: 6px;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
 }
 
 .animation-preview {
-    background: aliceblue;
-    display: block;
-    border-radius: 6px;
-    user-select: none;
+    object-fit: cover;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.animation-thumbnail {
+    object-fit: cover;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.animation-player {
+    object-fit: cover;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.animation-picker .animation-player,
+.animation-picker .animation-thumbnail {
+    object-fit: cover;
 }
 
 .animation-play {

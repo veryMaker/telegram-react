@@ -26,7 +26,7 @@ class MediaStatus extends React.Component {
     }
 
     componentWillUnmount() {
-        MessageStore.removeListener('updateMessageContentOpened', this.onUpdateMessageContentOpened);
+        MessageStore.off('updateMessageContentOpened', this.onUpdateMessageContentOpened);
     }
 
     onUpdateMessageContentOpened = update => {
@@ -46,8 +46,8 @@ class MediaStatus extends React.Component {
 }
 
 MediaStatus.propTypes = {
-    chatId: PropTypes.number.isRequired,
-    messageId: PropTypes.number.isRequired,
+    chatId: PropTypes.number,
+    messageId: PropTypes.number,
     icon: PropTypes.node,
     openedIcon: PropTypes.node
 };

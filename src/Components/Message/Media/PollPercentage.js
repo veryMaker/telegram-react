@@ -7,7 +7,6 @@
 
 import React from 'react';
 import PropTypes from 'prop-types';
-import classNames from 'classnames';
 import { ANIMATION_DURATION_200MS } from './../../../Constants';
 import './PollPercentage.css';
 
@@ -29,10 +28,14 @@ class PollPercentage extends React.Component {
     }
 
     shouldComponentUpdate(nextProps, nextState, nextContext) {
-        const { closed, value } = this.props;
+        const { closed, theme, value } = this.props;
         const { animated } = this.state;
 
         if (closed !== nextProps.closed) {
+            return true;
+        }
+
+        if (theme !== nextProps.theme) {
             return true;
         }
 
@@ -104,14 +107,15 @@ class PollPercentage extends React.Component {
         const { animated } = this.state;
 
         return (
-            <div className={classNames('poll-percentage', { 'poll-percentage-subtitle': !chosen })}>
-                {!closed && chosen ? (
-                    <a className='poll-percentage-action' onClick={onClick}>
-                        {animated + '%'}
-                    </a>
-                ) : (
-                    <>{animated + '%'}</>
-                )}
+            <div className='poll-percentage'>
+                {/*{!closed && chosen ? (*/}
+                {/*    <a className='poll-percentage-action' onClick={onClick}>*/}
+                {/*        {animated + '%'}*/}
+                {/*    </a>*/}
+                {/*) : (*/}
+                {/*    <>{animated + '%'}</>*/}
+                {/*)}*/}
+                <>{animated + '%'}</>
             </div>
         );
     }

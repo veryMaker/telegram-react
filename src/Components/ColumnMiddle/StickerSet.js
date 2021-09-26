@@ -7,36 +7,15 @@
 
 import React from 'react';
 import PropTypes from 'prop-types';
-import classNames from 'classnames';
-import withStyles from '@material-ui/core/styles/withStyles';
-import Sticker from '../Message/Media/Sticker';
+import IconButton from '@material-ui/core/IconButton';
+import ClearIcon from '@material-ui/icons/Clear';
+import Sticker, { StickerSourceEnum } from '../Message/Media/Sticker';
 import { STICKER_SMALL_DISPLAY_SIZE } from '../../Constants';
 import './StickerSet.css';
 
-const styles = theme => ({
-    title: {
-        backgroundColor: theme.palette.background.paper,
-        color: theme.palette.text.primary
-    },
-    stickerSetItem: {
-        width: STICKER_SMALL_DISPLAY_SIZE,
-        height: STICKER_SMALL_DISPLAY_SIZE,
-        padding: 3,
-        boxSizing: 'border-box',
-        '&:hover': {
-            background: theme.palette.type === 'dark' ? '#303030' : '#f4f4f4',
-            borderRadius: 6
-        }
-    }
-});
-
 class StickerSet extends React.Component {
     shouldComponentUpdate(nextProps, nextState, nextContext) {
-        const { info, theme } = this.props;
-
-        if (theme !== nextProps.theme) {
-            return true;
-        }
+        const { info } = this.props;
 
         if (info !== nextProps.info) {
             return true;
@@ -46,34 +25,50 @@ class StickerSet extends React.Component {
     }
 
     render() {
-        const { classes, info, onSelect, onMouseDown, onMouseOver } = this.props;
+        const { info, onSelect, onMouseDown, onMouseEnter, onDeleteClick } = this.props;
         if (!info) return null;
 
         const { title, stickers } = info;
 
         const items = stickers.map((x, i) => (
             <div
-                className={classNames('sticker-set-item', classes.stickerSetItem)}
+                className='sticker-set-item'
                 key={x.sticker.id}
                 data-sticker-id={x.sticker.id}
                 onClick={() => onSelect(x)}
+                onMouseEnter={onMouseEnter}
                 onMouseDown={onMouseDown}
-                onMouseOver={onMouseOver}>
+                style={{
+                    width: STICKER_SMALL_DISPLAY_SIZE,
+                    height: STICKER_SMALL_DISPLAY_SIZE
+                }}>
                 <Sticker
                     key={x.sticker.id}
-                    className='sticker-set-item-sticker'
                     sticker={x}
-                    preview
-                    displaySize={STICKER_SMALL_DISPLAY_SIZE - 6}
+                    autoplay={false}
                     blur={false}
+                    displaySize={STICKER_SMALL_DISPLAY_SIZE}
+                    preview
+                    source={StickerSourceEnum.PICKER}
                 />
             </div>
         ));
 
         return (
             <div className='sticker-set'>
-                <div className={classNames('sticker-set-title', classes.title)}>
-                    <span>{title}</span>
+                <div className='sticker-set-title'>
+                    <div className='sticker-set-title-wrapper'>
+                        <span>{title}</span>
+                    </div>
+                    {onDeleteClick && (
+                        <IconButton
+                            aria-label='delete'
+                            classes={{ root: 'sticker-set-icon-root' }}
+                            size='small'
+                            onClick={onDeleteClick}>
+                            <ClearIcon fontSize='inherit' />
+                        </IconButton>
+                    )}
                 </div>
                 <div className='sticker-set-content'>{items}</div>
             </div>
@@ -84,7 +79,8 @@ class StickerSet extends React.Component {
 StickerSet.propTypes = {
     info: PropTypes.object.isRequired,
     onSelect: PropTypes.func.isRequired,
-    onMouseDown: PropTypes.func.isRequired
+    onMouseDown: PropTypes.func.isRequired,
+    onDeleteClick: PropTypes.func
 };
 
-export default withStyles(styles, { withTheme: true })(StickerSet);
+export default StickerSet;

@@ -6,19 +6,24 @@
  */
 
 .header-player {
-    min-height: 45px;
+    min-height: 43px;
     display: flex;
     align-items: center;
     /*overflow: hidden;*/
     box-sizing: border-box;
-    border-bottom-width: 1px;
-    border-bottom-style: solid;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel-background);
     padding: 0 12px;
+    z-index: 2;
 
     /*position: absolute;*/
     /*left: 0;*/
     /*right: 0;*/
     /*top: 65px;*/
+}
+
+.header-player-button {
+    padding: 4px;
 }
 
 .header-player-video {
@@ -48,11 +53,14 @@
     width: 14px;
     height: 12px;
     margin: 2px 1px;
-    line-height: 12px;
     font-size: 8px;
+    line-height: normal;
     font-weight: bold;
     border: 2px solid;
     border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .header-player-play-icon {

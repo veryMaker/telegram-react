@@ -7,21 +7,14 @@
 
 import React from 'react';
 import PropTypes from 'prop-types';
-import classNames from 'classnames';
-import withStyles from '@material-ui/core/styles/withStyles';
-import Photo from './Photo';
+import { withTranslation } from 'react-i18next';
 import Animation from './Animation';
-import { accentStyles } from '../../Theme';
+import Photo from './Photo';
 import { getFormattedText } from '../../../Utils/Message';
 import { getFitSize, getSize } from '../../../Utils/Common';
 import { getSrc } from '../../../Utils/File';
 import { PHOTO_DISPLAY_SIZE, PHOTO_SIZE } from '../../../Constants';
-import FileStore from '../../../Stores/FileStore';
 import './Game.css';
-
-const styles = theme => ({
-    ...accentStyles(theme)
-});
 
 class Game extends React.Component {
     getContent = () => {
@@ -33,7 +26,7 @@ class Game extends React.Component {
         if (animation) {
             const animationSrc = getSrc(animation.animation);
             if (animationSrc || animation.thumbnail) {
-                return <Animation chatId={chatId} messageId={messageId} animation={animation} openMedia={openMedia} />;
+                return <Animation stretch={true} chatId={chatId} messageId={messageId} animation={animation} openMedia={openMedia} />;
             }
         }
 
@@ -58,22 +51,25 @@ class Game extends React.Component {
     };
 
     render() {
-        const { classes, game } = this.props;
+        const { game, meta, t } = this.props;
         if (!game) return null;
 
         const { title, text, description } = game;
-        const formattedText = getFormattedText(text);
+        const formattedText = getFormattedText(text, t);
 
         return (
-            <div className='game'>
-                <div className={classNames('game-border', classes.accentBackgroundLight)} />
-                <div className='game-wrapper'>
-                    {title && <div className={classNames('game-title', classes.accentColorMain)}>{title}</div>}
-                    {formattedText && <div className='game-text'>{formattedText}</div>}
-                    {description && <div className='game-description'>{description}</div>}
-                    {this.getContent()}
+            <>
+                <div className='game'>
+                    <div className='border' />
+                    <div className='game-wrapper'>
+                        {title && <div className='game-title'>{title}</div>}
+                        {formattedText && <div className='game-text'>{formattedText}</div>}
+                        {description && <div className='game-description'>{description}</div>}
+                        {this.getContent()}
+                    </div>
                 </div>
-            </div>
+                {meta}
+            </>
         );
     }
 }
@@ -82,7 +78,7 @@ Game.propTypes = {
     chatId: PropTypes.number.isRequired,
     messageId: PropTypes.number.isRequired,
     game: PropTypes.object.isRequired,
-    openMedia: PropTypes.func.isRequired,
+    openMedia: PropTypes.func,
 
     size: PropTypes.number,
     displaySize: PropTypes.number
@@ -93,4 +89,4 @@ Game.defaultProps = {
     displaySize: PHOTO_DISPLAY_SIZE
 };
 
-export default withStyles(styles)(Game);
+export default withTranslation()(Game);

@@ -20,20 +20,19 @@
 }
 
 .forward-target-chat-tile-wrapper {
-    height: 48px;
+    /*height:  54px;*/
     transition: transform 0.2s cubic-bezier(0.5, 2, 0.6, 0.6);
 }
 
 .forward-target-chat-selected .forward-target-chat-tile-wrapper {
-    transform: scaleX(0.834) scaleY(0.834);
+    transform: scaleX(0.852) scaleY(0.852);
 }
 
 .forward-target-chat-selection {
-    border-width: 2px;
-    border-style: solid;
+    border: 2px solid var(--color-accent-main);
     border-radius: 50%;
-    width: 44px;
-    height: 44px;
+    width: calc(var(--tile-size-normal) - 4px);
+    height: calc(var(--tile-size-normal) - 4px);
     position: absolute;
     left: 0;
     top: 0;
@@ -51,6 +50,16 @@
     /*box-shadow: inset 0 0 0 0 transparent;*/
     transition: box-shadow 0.5s;
     z-index: 2;
+}
+
+.forward-target-chat-mark-selected {
+    box-shadow: inset 0 0 0 10px var(--color-accent-main);
+    border: 2px solid var(--background-paper);
+}
+
+.forward-target-chat-mark-unselected {
+    box-shadow: inset 0 0 0 0 var(--color-accent-main);
+    border: 2px solid transparent;
 }
 
 .forward-target-chat-mark-icon {
@@ -83,9 +92,9 @@
 .forward-target-chat-title {
     max-width: 80px;
     font-size: 12px;
-    line-height: normal;
+    line-height: 16px;
     margin: 6px 0 0;
-    height: 32px;
+    max-height: 32px;
     text-align: center;
     text-overflow: ellipsis;
     overflow: hidden;

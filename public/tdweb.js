@@ -228,7 +228,7 @@ module.exports = _slicedToArray;
 /***/ (function(module, exports, __webpack_require__) {
 
 module.exports = function() {
-  return new Worker(__webpack_require__.p + "5bf22bc6b3c8aab8a6e3.worker.js");
+  return new Worker(__webpack_require__.p + "d6e29502cb97a72c1880.worker.js");
 };
 
 /***/ }),
@@ -1138,6 +1138,7 @@ module.exports = bytesToUuid;
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
+// ESM COMPAT FLAG
 __webpack_require__.r(__webpack_exports__);
 
 // EXTERNAL MODULE: ./node_modules/@babel/runtime/helpers/typeof.js
@@ -2158,7 +2159,6 @@ var log = new logger_Logger();
 
 
  //import localforage from 'localforage';
-//import './third_party/broadcastchannel.js';
 
 
 
@@ -2184,8 +2184,7 @@ var src_sleep = function sleep(ms) {
  * 2. Added the method <code>setJsLogVerbosityLevel new_verbosity_level:string = Ok;</code>, which allows to change the verbosity level of tdweb logging.<br>
  * 3. Added the possibility to use blobs as input files via the constructor <code>inputFileBlob data:<JavaScript blob> = InputFile;</code>.<br>
  * 4. The class <code>filePart</code> contains data as a JavaScript blob instead of a base64-encoded string.<br>
- * 5. The method <code>readFilePart</code> supports only <code>offset == count == 0</code>.<br>
- * 6. The methods <code>getStorageStatistics</code>, <code>getStorageStatisticsFast</code>, <code>optimizeStorage</code>, <code>addProxy</code> and <code>getFileDownloadedPrefixSize</code> are not supported.<br>
+ * 5. The methods <code>getStorageStatistics</code>, <code>getStorageStatisticsFast</code>, <code>optimizeStorage</code>, <code>addProxy</code> and <code>getFileDownloadedPrefixSize</code> are not supported.<br>
  * <br>
  */
 
@@ -2431,7 +2430,7 @@ function () {
     key: "onResponse",
     value: function onResponse(response) {
       logger.debug('receive from worker: ', JSON.parse(JSON.stringify(response, function (key, value) {
-        if (key === 'arr') {
+        if (key === 'arr' || key === 'data') {
           return undefined;
         }
 
@@ -2502,7 +2501,7 @@ function () {
       for (var key in response) {
         var field = response[key];
 
-        if (field && typeof_default()(field) === 'object') {
+        if (field && typeof_default()(field) === 'object' && key !== 'data' && key !== 'arr') {
           response[key] = this.prepareResponse(field);
         }
       }
@@ -2797,7 +2796,7 @@ function () {
       var _this5 = this;
 
       this.idb = new Promise(function (resolve, reject) {
-        var request = window.indexedDB.open(_this5.instanceName);
+        var request = indexedDB.open(_this5.instanceName);
 
         request.onsuccess = function () {
           return resolve(request.result);
@@ -2854,10 +2853,10 @@ function () {
       if (file.arr) {
         var now = Date.now();
 
-        while (this.totalSize > 10000000) {
-          var node = this.lru.getLru(); // immunity for 5 seconds
+        while (this.totalSize > 100000000) {
+          var node = this.lru.getLru(); // immunity for 60 seconds
 
-          if (node.usedAt + 5 * 1000 > now) {
+          if (node.usedAt + 60 * 1000 > now) {
             break;
           }
 
@@ -2934,7 +2933,9 @@ function () {
                     }
                   };
 
-                  request.onerror = query.reject;
+                  request.onerror = function () {
+                    return query.reject(request.error);
+                  };
                 };
 
                 for (_iterator = pending[Symbol.iterator](); !(_iteratorNormalCompletion = (_step = _iterator.next()).done); _iteratorNormalCompletion = true) {
@@ -3074,7 +3075,7 @@ function () {
             switch (_context7.prev = _context7.next) {
               case 0:
                 if (!(!info.arr && !info.idb_key && info.file.local.path)) {
-                  _context7.next = 24;
+                  _context7.next = 22;
                   break;
                 }
 
@@ -3088,51 +3089,50 @@ function () {
 
               case 4:
                 count = _context7.sent;
-                logger.error(count, size);
 
                 if (size) {
-                  _context7.next = 10;
+                  _context7.next = 9;
                   break;
                 }
 
                 size = count.count;
-                _context7.next = 12;
+                _context7.next = 11;
                 break;
 
-              case 10:
+              case 9:
                 if (!(size > count.count)) {
-                  _context7.next = 12;
+                  _context7.next = 11;
                   break;
                 }
 
                 throw new Error('File not loaded yet');
 
-              case 12:
-                _context7.next = 14;
+              case 11:
+                _context7.next = 13;
                 return this.client.sendInternal({
                   '@type': 'readFilePart',
                   path: info.file.local.path,
                   offset: offset,
-                  size: size
+                  count: size
                 });
 
-              case 14:
+              case 13:
                 _res = _context7.sent;
                 _res.data = new Blob([_res.data]);
-                _res.transaction_id = -2;
-                logger.error(_res);
+                _res.transaction_id = -2; //log.error(res);
+
                 return _context7.abrupt("return", _res);
 
-              case 21:
-                _context7.prev = 21;
+              case 19:
+                _context7.prev = 19;
                 _context7.t0 = _context7["catch"](1);
                 logger.info('readFilePart failed', info, offset, size, _context7.t0);
 
-              case 24:
-                _context7.next = 26;
+              case 22:
+                _context7.next = 24;
                 return this.doLoadFull(info);
 
-              case 26:
+              case 24:
                 res = _context7.sent;
                 // return slice(size, offset + size)
                 data_size = res.data.size;
@@ -3148,12 +3148,12 @@ function () {
                 res.data = res.data.slice(offset, offset + size);
                 return _context7.abrupt("return", res);
 
-              case 32:
+              case 30:
               case "end":
                 return _context7.stop();
             }
           }
-        }, _callee7, this, [[1, 21]]);
+        }, _callee7, this, [[1, 19]]);
       }));
 
       function doLoad(_x5, _x6, _x7) {
@@ -3204,7 +3204,7 @@ function () {
                 }
 
                 query.offset = query.offset || 0;
-                query.size = query.size || 0;
+                query.size = query.count || query.size || 0;
                 _context8.next = 11;
                 return this.doLoad(info, query.offset, query.size);
 

@@ -7,6 +7,10 @@
 
 import React from 'react';
 import PropTypes from 'prop-types';
+import { compose } from '../../Utils/HOC';
+import { withRestoreRef, withSaveRef } from '../../Utils/HOC';
+import withTheme from '@material-ui/core/styles/withTheme';
+import { withTranslation } from 'react-i18next';
 import Dialog from '@material-ui/core/Dialog';
 import DialogContent from '@material-ui/core/DialogContent';
 import DialogTitle from '@material-ui/core/DialogTitle';
@@ -15,7 +19,6 @@ import RadioGroup from '@material-ui/core/RadioGroup';
 import FormControlLabel from '@material-ui/core/FormControlLabel';
 import FormControl from '@material-ui/core/FormControl';
 import FormLabel from '@material-ui/core/FormLabel';
-import withStyles from '@material-ui/core/styles/withStyles';
 import red from '@material-ui/core/colors/red';
 import orange from '@material-ui/core/colors/orange';
 import amber from '@material-ui/core/colors/amber';
@@ -23,73 +26,32 @@ import green from '@material-ui/core/colors/green';
 import blue from '@material-ui/core/colors/blue';
 import indigo from '@material-ui/core/colors/indigo';
 import deepPurple from '@material-ui/core/colors/deepPurple';
+import { modalManager } from '../../Utils/Modal';
 import ApplicationStore from '../../Stores/ApplicationStore';
-
-const styles = theme => ({
-    formControl: {
-        margin: theme.spacing.unit * 3
-    },
-    group: {
-        margin: `${theme.spacing.unit}px 0`
-    },
-    redRoot: {
-        color: red[600],
-        '&$checked': {
-            color: red[500]
-        }
-    },
-    orangeRoot: {
-        color: orange[600],
-        '&$checked': {
-            color: orange[500]
-        }
-    },
-    amberRoot: {
-        color: amber[600],
-        '&$checked': {
-            color: amber[500]
-        }
-    },
-    greenRoot: {
-        color: green[600],
-        '&$checked': {
-            color: green[500]
-        }
-    },
-    blueRoot: {
-        color: blue[600],
-        '&$checked': {
-            color: blue[500]
-        }
-    },
-    indigoRoot: {
-        color: indigo[600],
-        '&$checked': {
-            color: indigo[500]
-        }
-    },
-    deepPurpleRoot: {
-        color: deepPurple[600],
-        '&$checked': {
-            color: deepPurple[500]
-        }
-    },
-    checked: {}
-});
+import './ThemePicker.css';
 
 class ThemePicker extends React.Component {
     constructor(props) {
         super(props);
 
+        let { type, primary } = { type: 'light', primary: { main: '#50A2E9' } };
+        try {
+            const themeOptions = JSON.parse(localStorage.getItem('themeOptions'));
+            type = themeOptions.type;
+            primary = themeOptions.primary;
+        } catch {}
+
         this.state = {
             open: false,
-            type: this.props.theme.palette.type,
+            type,
             color: this.getColorString(this.props.theme.palette.primary.main)
         };
     }
 
     handleChange = event => {
-        this.setState({ type: event.target.value });
+        const type = event.target.value;
+
+        this.setState({ type });
 
         ApplicationStore.emit('clientUpdateThemeChanging', {
             type: event.target.value,
@@ -116,7 +78,7 @@ class ThemePicker extends React.Component {
                 return 'amber';
             case green['500']:
                 return 'green';
-            case blue['500']:
+            case '#50A2E9':
                 return 'blue';
             case indigo['500']:
                 return 'indigo';
@@ -138,7 +100,7 @@ class ThemePicker extends React.Component {
             case 'green':
                 return green;
             case 'blue':
-                return blue;
+                return { main: '#50A2E9' };
             case 'indigo':
                 return indigo;
             case 'deepPurple':
@@ -157,49 +119,52 @@ class ThemePicker extends React.Component {
     };
 
     render() {
-        const { classes } = this.props;
-        const { type, color } = this.state;
+        const { t } = this.props;
+        const { type, color, open } = this.state;
 
         return (
             <Dialog
+                disableEnforceFocus={true}
+                manager={modalManager}
                 transitionDuration={0}
-                open={this.state.open}
+                open={open}
                 onClose={this.handleClose}
                 aria-labelledby='alert-dialog-title'
                 aria-describedby='alert-dialog-description'>
-                <DialogTitle id='alert-dialog-title'>Appearance</DialogTitle>
+                <DialogTitle id='alert-dialog-title'>{t('Theme')}</DialogTitle>
                 <DialogContent>
-                    <FormControl component='fieldset' className={classes.formControl}>
+                    <FormControl component='fieldset' className='theme-picker-form'>
                         <FormLabel focused component='legend'>
-                            Theme
+                            {t('Theme')}
                         </FormLabel>
                         <RadioGroup
                             aria-label='theme'
                             name='theme1'
-                            className={classes.group}
+                            className='theme-picker-group'
                             value={type}
                             onChange={this.handleChange}>
+                            <FormControlLabel value='default' control={<Radio color='primary' />} label='System Default' />
                             <FormControlLabel value='light' control={<Radio color='primary' />} label='Light' />
                             <FormControlLabel value='dark' control={<Radio color='primary' />} label='Dark' />
                         </RadioGroup>
                     </FormControl>
-                    <FormControl component='fieldset' className={classes.formControl}>
+                    <FormControl component='fieldset' className='theme-picker-form'>
                         <FormLabel focused component='legend'>
-                            Accent
+                            {t('Accent')}
                         </FormLabel>
                         <RadioGroup
                             aria-label='accent'
                             name='accent1'
-                            className={classes.group}
+                            className='theme-picker-group'
                             value={color}
                             onChange={this.handleAccentChange}>
                             <FormControlLabel
                                 value='red'
                                 control={
                                     <Radio
+                                        color='primary'
                                         classes={{
-                                            root: classes.redRoot,
-                                            checked: classes.checked
+                                            root: 'theme-picker-red'
                                         }}
                                     />
                                 }
@@ -209,9 +174,9 @@ class ThemePicker extends React.Component {
                                 value='orange'
                                 control={
                                     <Radio
+                                        color='primary'
                                         classes={{
-                                            root: classes.orangeRoot,
-                                            checked: classes.checked
+                                            root: 'theme-picker-orange'
                                         }}
                                     />
                                 }
@@ -221,9 +186,9 @@ class ThemePicker extends React.Component {
                                 value='amber'
                                 control={
                                     <Radio
+                                        color='primary'
                                         classes={{
-                                            root: classes.amberRoot,
-                                            checked: classes.checked
+                                            root: 'theme-picker-amber'
                                         }}
                                     />
                                 }
@@ -233,9 +198,9 @@ class ThemePicker extends React.Component {
                                 value='green'
                                 control={
                                     <Radio
+                                        color='primary'
                                         classes={{
-                                            root: classes.greenRoot,
-                                            checked: classes.checked
+                                            root: 'theme-picker-green'
                                         }}
                                     />
                                 }
@@ -245,9 +210,9 @@ class ThemePicker extends React.Component {
                                 value='blue'
                                 control={
                                     <Radio
+                                        color='primary'
                                         classes={{
-                                            root: classes.blueRoot,
-                                            checked: classes.checked
+                                            root: 'theme-picker-blue'
                                         }}
                                     />
                                 }
@@ -257,9 +222,9 @@ class ThemePicker extends React.Component {
                                 value='indigo'
                                 control={
                                     <Radio
+                                        color='primary'
                                         classes={{
-                                            root: classes.indigoRoot,
-                                            checked: classes.checked
+                                            root: 'theme-picker-indigo'
                                         }}
                                     />
                                 }
@@ -269,9 +234,9 @@ class ThemePicker extends React.Component {
                                 value='deepPurple'
                                 control={
                                     <Radio
+                                        color='primary'
                                         classes={{
-                                            root: classes.deepPurpleRoot,
-                                            checked: classes.checked
+                                            root: 'theme-picker-deep-purple'
                                         }}
                                     />
                                 }
@@ -287,4 +252,11 @@ class ThemePicker extends React.Component {
 
 ThemePicker.propTypes = {};
 
-export default withStyles(styles, { withTheme: true })(ThemePicker);
+const enhance = compose(
+    withSaveRef(),
+    withTheme,
+    withTranslation(),
+    withRestoreRef()
+);
+
+export default enhance(ThemePicker);

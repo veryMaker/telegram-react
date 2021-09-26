@@ -8,29 +8,13 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import classNames from 'classnames';
-import { compose } from 'recompose';
-import withStyles from '@material-ui/core/styles/withStyles';
 import { withTranslation } from 'react-i18next';
 import LinearProgress from '@material-ui/core/LinearProgress';
+import CheckIcon from '../../../Assets/Icons/Check';
+import CloseIcon from '../../../Assets/Icons/Close';
 import PollRadio from './PollRadio';
 import PollPercentage from './PollPercentage';
-import { borderStyle } from '../../Theme';
 import './PollOption.css';
-
-const styles = theme => ({
-    progressRoot: {
-        backgroundColor: 'transparent',
-        margin: '2px 0 0 38px',
-        position: 'absolute',
-        left: 0,
-        right: 0,
-        bottom: 0
-    },
-    progressBar: {
-        transition: 'transform .2s linear'
-    },
-    ...borderStyle(theme)
-});
 
 class PollOption extends React.Component {
     getTitleString = (count, t = key => key) => {
@@ -52,19 +36,11 @@ class PollOption extends React.Component {
         onVote();
     };
 
-    handleCancel = event => {
-        const { onUnvote } = this.props;
-
-        event.stopPropagation();
-
-        onUnvote();
-    };
-
     render() {
-        const { classes, option, onChange, canBeSelected, closed, maxVoterCount, t } = this.props;
+        const { option, onChange, canBeSelected, closed, maxVoterCount, t, type, isCorrect } = this.props;
         if (!option) return null;
 
-        const { text, voter_count, vote_percentage, is_chosen, is_being_chosen } = option;
+        const { text, voter_count, vote_percentage, is_chosen, isMultiChoosen, is_being_chosen } = option;
 
         let value = 1.5;
         if (voter_count) {
@@ -79,24 +55,39 @@ class PollOption extends React.Component {
                         canBeSelected ? 'poll-option-unselected' : 'poll-option-selected'
                     )}>
                     <div className='poll-option-text-wrapper' title={this.getTitleString(voter_count, t)}>
-                        <PollPercentage
-                            value={vote_percentage}
-                            chosen={is_chosen}
-                            closed={closed}
-                            onClick={this.handleCancel}
-                        />
+                        <PollPercentage value={vote_percentage} chosen={is_chosen} closed={closed} />
                         <PollRadio
                             hidden={!canBeSelected}
-                            chosen={is_chosen}
+                            chosen={is_chosen || isMultiChoosen}
                             beingChosen={is_being_chosen}
                             onChange={onChange}
                         />
+                        {(is_chosen || isCorrect) && (
+                            <div
+                                className={classNames(
+                                    'poll-option-mark',
+                                    { 'poll-option-mark-correct': type === 'correct' },
+                                    { 'poll-option-mark-incorrect': type === 'incorrect' }
+                                )}>
+                                {type === 'incorrect' ? (
+                                    <CloseIcon className='poll-option-mark-icon' />
+                                ) : (
+                                    <CheckIcon className='poll-option-mark-icon' />
+                                )}
+                            </div>
+                        )}
                         <div className='poll-option-text'>{text}</div>
                     </div>
                 </div>
-                <div className={classNames('poll-option-bottom-border', { [classes.borderColor]: canBeSelected })} />
                 <LinearProgress
-                    classes={{ root: classes.progressRoot, bar: classes.progressBar }}
+                    classes={{
+                        root: 'poll-option-progress-root',
+                        bar: classNames(
+                            'poll-option-progress-bar',
+                            { 'poll-option-progress-bar-correct': type === 'correct' },
+                            { 'poll-option-progress-bar-incorrect': type === 'incorrect' }
+                        )
+                    }}
                     color='primary'
                     variant='determinate'
                     value={canBeSelected ? 0 : Math.max(1.5, value)}
@@ -107,17 +98,12 @@ class PollOption extends React.Component {
 }
 
 PollOption.propTypes = {
+    type: PropTypes.oneOf(['regular', 'correct', 'incorrect']).isRequired,
     option: PropTypes.object.isRequired,
     onVote: PropTypes.func.isRequired,
-    onUnvote: PropTypes.func.isRequired,
     canBeSelected: PropTypes.bool,
     closed: PropTypes.bool,
     maxVoterCount: PropTypes.number
 };
 
-const enhance = compose(
-    withStyles(styles, { withTheme: true }),
-    withTranslation()
-);
-
-export default enhance(PollOption);
+export default withTranslation()(PollOption);

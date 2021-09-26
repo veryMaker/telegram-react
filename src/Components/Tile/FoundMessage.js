@@ -8,43 +8,29 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import classNames from 'classnames';
-import withStyles from '@material-ui/core/styles/withStyles';
 import { withTranslation } from 'react-i18next';
-import { compose } from 'recompose';
 import ListItem from '@material-ui/core/ListItem';
-import ChatTileControl from './ChatTileControl';
-import UserTileControl from './UserTileControl';
-import DialogTitleControl from './DialogTitleControl';
+import ChatTile from './ChatTile';
+import UserTile from './UserTile';
+import DialogTitle from './DialogTitle';
 import { getMessageDate, getMessageSenderFullName, getMessageSenderName } from '../../Utils/Chat';
 import { getContent } from '../../Utils/Message';
+import AppStore from '../../Stores/ApplicationStore';
 import MessageStore from '../../Stores/MessageStore';
-import ApplicationStore from '../../Stores/ApplicationStore';
 import './FoundMessage.css';
-
-const styles = theme => ({
-    listItem: {
-        padding: 0
-    },
-    accentBackground: {
-        background: theme.palette.primary.main + '!important'
-    },
-    foundMessageSubtitle: {
-        color: theme.palette.type === 'dark' ? theme.palette.text.secondary : '#70777b'
-    }
-});
 
 class FoundMessage extends React.Component {
     constructor(props) {
         super(props);
 
         this.state = {
-            nextChatId: ApplicationStore.getChatId(),
-            nextMessageId: ApplicationStore.getMessageId()
+            nextChatId: AppStore.getChatId(),
+            nextMessageId: AppStore.getMessageId()
         };
     }
 
     shouldComponentUpdate(nextProps, nextState) {
-        const { chatId, messageId, theme } = this.props;
+        const { chatId, messageId } = this.props;
 
         if (nextState.nextChatId === chatId && nextState.nextMessageId === messageId) {
             return true;
@@ -54,19 +40,15 @@ class FoundMessage extends React.Component {
             return true;
         }
 
-        if (nextProps.theme !== theme) {
-            return true;
-        }
-
         return false;
     }
 
     componentDidMount() {
-        ApplicationStore.on('clientUpdateChatId', this.onClientUpdateChatId);
+        AppStore.on('clientUpdateChatId', this.onClientUpdateChatId);
     }
 
     componentWillUnmount() {
-        ApplicationStore.removeListener('clientUpdateChatId', this.onClientUpdateChatId);
+        AppStore.off('clientUpdateChatId', this.onClientUpdateChatId);
     }
 
     onClientUpdateChatId = update => {
@@ -76,45 +58,41 @@ class FoundMessage extends React.Component {
     };
 
     render() {
-        const { chatId, messageId, chatSearch, onClick, classes, t } = this.props;
+        const { chatId, messageId, chatSearch, onClick, t } = this.props;
         const selectedChatId = this.state.nextChatId;
         const selectedMessageId = this.state.nextMessageId;
         const message = MessageStore.get(chatId, messageId);
 
-        const { sender_user_id } = message;
+        const { sender } = message;
 
         const date = getMessageDate(message);
-        const senderName = getMessageSenderName(message);
-        const senderFullName = getMessageSenderFullName(message);
+        const senderName = getMessageSenderName(message, t);
+        const senderFullName = getMessageSenderFullName(message, t);
         const content = getContent(message, t) || '\u00A0';
+        const selected = chatId === selectedChatId && messageId === selectedMessageId;
 
         const tile =
-            sender_user_id && chatSearch ? (
-                <UserTileControl userId={sender_user_id} />
+            sender.user_id && chatSearch ? (
+                <UserTile userId={sender.user_id} dialog />
             ) : (
-                <ChatTileControl chatId={chatId} />
+                <ChatTile chatId={chatId} dialog />
             );
 
         return (
-            <ListItem button className={classes.listItem} onClick={onClick}>
-                <div
-                    className={classNames(
-                        'found-message',
-                        { [classes.accentBackground]: chatId === selectedChatId && messageId === selectedMessageId },
-                        { 'accent-background': chatId === selectedChatId && messageId === selectedMessageId }
-                    )}>
+            <ListItem button className={classNames('found-message', { 'item-selected': selected })} onClick={onClick}>
+                <div className='dialog-wrapper'>
                     {tile}
                     <div className='dialog-inner-wrapper'>
                         <div className='tile-first-row'>
                             {chatSearch && senderFullName ? (
                                 <div className='dialog-title'>{senderFullName}</div>
                             ) : (
-                                <DialogTitleControl chatId={chatId} />
+                                <DialogTitle chatId={chatId} />
                             )}
-                            <div className={classNames('dialog-meta-date', classes.foundMessageSubtitle)}>{date}</div>
+                            <div className='dialog-meta'>{date}</div>
                         </div>
                         <div className='tile-second-row'>
-                            <div className={classNames('dialog-content', classes.foundMessageSubtitle)}>
+                            <div className='dialog-content'>
                                 {
                                     <>
                                         {!chatSearch && senderName && (
@@ -139,9 +117,4 @@ FoundMessage.propTypes = {
     onClick: PropTypes.func
 };
 
-const enhance = compose(
-    withStyles(styles, { withTheme: true }),
-    withTranslation()
-);
-
-export default enhance(FoundMessage);
+export default withTranslation()(FoundMessage);

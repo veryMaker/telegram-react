@@ -5,33 +5,50 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { EventEmitter } from 'events';
+import EventEmitter from './EventEmitter';
 import TdLibController from '../Controllers/TdLibController';
 
 class BasicGroupStore extends EventEmitter {
     constructor() {
         super();
 
-        this.items = new Map();
-        this.fullInfoItems = new Map();
+        this.reset();
 
         this.addTdLibListener();
-        this.setMaxListeners(Infinity);
     }
+
+    reset = () => {
+        this.items = new Map();
+        this.fullInfoItems = new Map();
+    };
 
     onUpdate = update => {
         switch (update['@type']) {
+            case 'updateAuthorizationState': {
+                const { authorization_state } = update;
+                if (!authorization_state) break;
+
+                switch (authorization_state['@type']) {
+                    case 'authorizationStateClosed': {
+                        this.reset();
+                        break;
+                    }
+                }
+
+                break;
+            }
             case 'updateBasicGroup': {
                 this.set(update.basic_group);
 
                 this.emit(update['@type'], update);
                 break;
             }
-            case 'updateBasicGroupFullInfo':
+            case 'updateBasicGroupFullInfo': {
                 this.setFullInfo(update.basic_group_id, update.basic_group_full_info);
 
                 this.emit(update['@type'], update);
                 break;
+            }
             default:
                 break;
         }
@@ -40,13 +57,13 @@ class BasicGroupStore extends EventEmitter {
     onClientUpdate = update => {};
 
     addTdLibListener = () => {
-        TdLibController.addListener('update', this.onUpdate);
-        TdLibController.addListener('clientUpdate', this.onClientUpdate);
+        TdLibController.on('update', this.onUpdate);
+        TdLibController.on('clientUpdate', this.onClientUpdate);
     };
 
     removeTdLibListener = () => {
-        TdLibController.removeListener('update', this.onUpdate);
-        TdLibController.removeListener('clientUpdate', this.onClientUpdate);
+        TdLibController.off('update', this.onUpdate);
+        TdLibController.off('clientUpdate', this.onClientUpdate);
     };
 
     get(groupId) {

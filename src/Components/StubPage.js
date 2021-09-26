@@ -8,78 +8,82 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import classNames from 'classnames';
-import { compose } from 'recompose';
 import { withTranslation } from 'react-i18next';
-import withStyles from '@material-ui/core/styles/withStyles';
 import IconButton from '@material-ui/core/IconButton';
-import MenuIcon from '@material-ui/icons/Menu';
-import SearchIcon from '@material-ui/icons/Search';
-import { borderStyle } from './Theme';
+import DialogPlaceholder from './Tile/DialogPlaceholder';
 import Footer from './Footer';
+import HeaderProgress from './ColumnMiddle/HeaderProgress';
+import MenuIcon from '../Assets/Icons/Menu';
+import Placeholder from './ColumnMiddle/Placeholder';
+import SearchIcon from '../Assets/Icons/Search';
+import AppStore from '../Stores/ApplicationStore';
 import './ColumnMiddle/Header.css';
 import './ColumnLeft/Dialogs.css';
 import './ColumnMiddle/DialogDetails.css';
 import '../TelegramApp.css';
-
-const styles = theme => ({
-    page: {
-        background: theme.palette.type === 'dark' ? theme.palette.background.default : '#FFFFFF',
-        color: theme.palette.text.primary
-    },
-    menuIconButton: {
-        margin: '8px -2px 8px 12px'
-    },
-    headerIconButton: {
-        margin: '8px 12px 8px 0'
-    },
-    background: {
-        background: theme.palette.type === 'dark' ? theme.palette.grey[900] : 'transparent',
-        flex: '1 1 auto'
-    },
-    ...borderStyle(theme)
-});
+import Dialog from './ColumnLeft/DialogsList';
 
 class StubPage extends React.Component {
+    constructor(props) {
+        super(props);
+
+        const { isSmallWidth } = AppStore;
+
+        this.setState({
+            isSmallWidth
+        });
+    }
+
+    componentDidMount() {
+        AppStore.on('clientUpdatePageWidth', this.onClientUpdatePageWidth);
+    }
+
+    componentWillUnmount() {
+        AppStore.off('clientUpdatePageWidth', this.onClientUpdatePageWidth);
+    }
+
+    onClientUpdatePageWidth = update => {
+        const { isSmallWidth } = update;
+
+        this.setState({ isSmallWidth });
+    };
+
     render() {
-        const { classes, title, t } = this.props;
-        const isChatDetailsVisible = false;
+        const { title, t } = this.props;
+        const { isSmallWidth } = this.state;
+
+        const dialogs = Array.from(Array(10)).map((x, index) => <DialogPlaceholder key={index} index={index} />);
 
         return (
             <>
-                <div className={classNames(classes.page, 'page', { 'page-third-column': isChatDetailsVisible })}>
-                    <div
-                        className={classNames(classes.borderColor, 'dialogs', {
-                            'dialogs-third-column': isChatDetailsVisible
-                        })}>
+                <div
+                    className={classNames('page', {
+                        'page-small': isSmallWidth
+                    })}>
+                    <div className='dialogs'>
                         <div className='header-master'>
-                            <IconButton className={classes.menuIconButton} aria-label='Menu'>
+                            <IconButton className='header-left-button' aria-label='Menu'>
                                 <MenuIcon />
                             </IconButton>
                             <div className='header-status grow cursor-pointer'>
                                 <span className='header-status-content'>{t('AppName')}</span>
                             </div>
-                            <IconButton className={classes.headerIconButton} aria-label={t('Search')}>
+                            <IconButton className='header-right-button' aria-label={t('Search')}>
                                 <SearchIcon />
                             </IconButton>
                         </div>
+                        {dialogs}
                     </div>
-                    <div
-                        className={classNames('dialog-details', {
-                            'dialog-details-third-column': isChatDetailsVisible
-                        })}>
-                        <div className={classNames(classes.borderColor, 'header-details')}>
+                    <div className='dialog-details'>
+                        <div className='header-details'>
                             <div className={classNames('header-status', 'grow', 'cursor-default')}>
                                 <span className='header-status-content'>{title}</span>
-                                {Boolean(title) && (
-                                    <>
-                                        <span className='header-progress'>.</span>
-                                        <span className='header-progress'>.</span>
-                                        <span className='header-progress'>.</span>
-                                    </>
-                                )}
+                                {Boolean(title) && <HeaderProgress />}
                             </div>
                         </div>
-                        <div className={classes.background} />
+                        <div className='messages-list'>
+                            <Placeholder />
+                        </div>
                     </div>
                 </div>
                 <Footer />
@@ -92,9 +96,4 @@ StubPage.propTypes = {
     title: PropTypes.string
 };
 
-const enhance = compose(
-    withStyles(styles),
-    withTranslation()
-);
-
-export default enhance(StubPage);
+export default withTranslation()(StubPage);

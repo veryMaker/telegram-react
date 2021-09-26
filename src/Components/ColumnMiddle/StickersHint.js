@@ -6,25 +6,14 @@
  */
 
 import React from 'react';
-import PropTypes from 'prop-types';
-import classNames from 'classnames';
-import withStyles from '@material-ui/core/styles/withStyles';
-import Sticker from '../Message/Media/Sticker';
+import Sticker, { StickerSourceEnum } from '../Message/Media/Sticker';
 import StickerPreview from './StickerPreview';
-import { borderStyle } from '../Theme';
 import { loadStickerContent, loadStickersContent } from '../../Utils/File';
 import { STICKER_HINT_DISPLAY_SIZE, STICKER_SMALL_DISPLAY_SIZE } from '../../Constants';
 import FileStore from '../../Stores/FileStore';
 import StickerStore from '../../Stores/StickerStore';
 import TdLibController from '../../Controllers/TdLibController';
 import './StickersHint.css';
-
-const styles = theme => ({
-    root: {
-        background: theme.palette.type === 'dark' ? theme.palette.background.default : '#FFFFFF'
-    },
-    ...borderStyle(theme)
-});
 
 class StickersHint extends React.Component {
     constructor(props) {
@@ -47,8 +36,8 @@ class StickersHint extends React.Component {
     }
 
     componentWillUnmount() {
-        StickerStore.removeListener('clientUpdateLocalStickersHint', this.onClientUpdateLocalStickersHint);
-        StickerStore.removeListener('clientUpdateRemoteStickersHint', this.onClientUpdateRemoteStickersHint);
+        StickerStore.off('clientUpdateLocalStickersHint', this.onClientUpdateLocalStickersHint);
+        StickerStore.off('clientUpdateRemoteStickersHint', this.onClientUpdateRemoteStickersHint);
     }
 
     onClientUpdateRemoteStickersHint = update => {
@@ -161,31 +150,41 @@ class StickersHint extends React.Component {
         return indexes.map(i => stickers[i]);
     };
 
-    handleMouseOver = event => {
-        const stickerId = Number(event.target.dataset.stickerId);
-        if (!stickerId) return;
+    handleMouseEnter = event => {
+        const stickerId = Number(event.currentTarget.dataset.stickerId);
+        const sticker = this.getSticker(stickerId);
+        if (!sticker) return;
 
         if (!this.mouseDown) return;
 
         if (this.mouseDownStickerId !== stickerId) {
             this.mouseDownStickerId = null;
         }
-        this.setState({ previewStickerId: stickerId });
+        this.setState({ sticker });
+        TdLibController.clientUpdate({
+            '@type': 'clientUpdateStickerPreview',
+            sticker
+        });
         this.loadPreviewContent(stickerId);
     };
 
     handleMouseDown = event => {
-        const stickerId = Number(event.target.dataset.stickerId);
-        if (!stickerId) return;
+        const stickerId = Number(event.currentTarget.dataset.stickerId);
+        const sticker = this.getSticker(stickerId);
+        if (!sticker) return;
 
         this.mouseDownStickerId = stickerId;
         const now = Date.now();
 
-        this.setState({ previewStickerId: stickerId, timestamp: now, showPreview: false, cancelSend: false });
+        this.setState({ sticker, timestamp: now, showPreview: false, cancelSend: false });
         setTimeout(() => {
             const { timestamp } = this.state;
             if (timestamp === now) {
                 this.setState({ showPreview: true, cancelSend: true });
+                TdLibController.clientUpdate({
+                    '@type': 'clientUpdateStickerPreview',
+                    sticker
+                });
             }
         }, 500);
 
@@ -200,7 +199,12 @@ class StickersHint extends React.Component {
     };
 
     handleMouseUp = () => {
-        this.setState({ previewStickerId: 0, timestamp: 0, showPreview: false });
+        const sticker = null;
+        this.setState({ sticker, timestamp: 0, showPreview: false });
+        TdLibController.clientUpdate({
+            '@type': 'clientUpdateStickerPreview',
+            sticker
+        });
         this.mouseDown = false;
         document.removeEventListener('mouseup', this.handleMouseUp);
     };
@@ -229,9 +233,15 @@ class StickersHint extends React.Component {
         return items;
     };
 
+    getSticker(stickerId) {
+        const { items } = this.state;
+
+        const stickerIndex = items.findIndex(x => x.sticker.id === stickerId);
+        return stickerIndex !== -1 ? items[stickerIndex] : null;
+    }
+
     render() {
-        const { classes } = this.props;
-        const { hint, items, previewStickerId, showPreview } = this.state;
+        const { hint, items, sticker, showPreview } = this.state;
         if (!hint) return null;
         if (!items) return null;
         if (!items.length) return null;
@@ -242,27 +252,24 @@ class StickersHint extends React.Component {
                 key={x.sticker.id}
                 data-sticker-id={x.sticker.id}
                 style={{ width: STICKER_HINT_DISPLAY_SIZE, height: STICKER_HINT_DISPLAY_SIZE }}
-                onClick={() => this.handleSend(x)}>
+                onClick={() => this.handleSend(x)}
+                onMouseEnter={this.handleMouseEnter}
+                onMouseDown={this.handleMouseDown}>
                 <Sticker
                     key={x.sticker.id}
                     className='sticker-set-dialog-item-sticker'
-                    preview
                     sticker={x}
-                    displaySize={STICKER_SMALL_DISPLAY_SIZE}
+                    autoplay={false}
                     blur={false}
+                    displaySize={STICKER_SMALL_DISPLAY_SIZE}
+                    preview
+                    source={StickerSourceEnum.HINTS}
                 />
             </div>
         ));
 
-        const stickerIndex = items.findIndex(x => x.sticker.id === previewStickerId);
-        const sticker = stickerIndex !== -1 ? items[stickerIndex] : null;
-
         return (
-            <div
-                ref={this.hintsRef}
-                className={classNames('stickers-hint', classes.borderColor, classes.root)}
-                onMouseOver={this.handleMouseOver}
-                onMouseDown={this.handleMouseDown}>
+            <div ref={this.hintsRef} className='stickers-hint scrollbars-hidden'>
                 {controls}
                 {Boolean(sticker) && showPreview && <StickerPreview sticker={sticker} />}
             </div>
@@ -270,4 +277,4 @@ class StickersHint extends React.Component {
     }
 }
 
-export default withStyles(styles)(StickersHint);
+export default StickersHint;

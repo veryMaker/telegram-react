@@ -10,8 +10,12 @@ import ReactDOM from 'react-dom';
 import { BrowserRouter as Router, Route } from 'react-router-dom';
 import TelegramApp from './TelegramApp';
 import registerServiceWorker from './registerServiceWorker';
-import Cookies from 'universal-cookie';
-import { OPTIMIZATIONS_FIRST_START } from './Constants';
+import {
+    OPTIMIZATIONS_FIRST_START,
+    STORAGE_REGISTER_KEY,
+    STORAGE_REGISTER_TEST_KEY
+} from './Constants';
+import TdLibController from './Controllers/TdLibController';
 import './index.css';
 
 ReactDOM.render(
@@ -22,14 +26,9 @@ ReactDOM.render(
 );
 
 if (OPTIMIZATIONS_FIRST_START) {
-    const cookieEnabled = navigator.cookieEnabled;
-    if (cookieEnabled) {
-        const cookies = new Cookies();
-        const register = cookies.get('register');
-        if (register) {
-            registerServiceWorker();
-        }
-    } else {
+    const registerKey = TdLibController.parameters.useTestDC ? STORAGE_REGISTER_TEST_KEY : STORAGE_REGISTER_KEY;
+    const register = localStorage.getItem(registerKey);
+    if (register) {
         registerServiceWorker();
     }
 } else {

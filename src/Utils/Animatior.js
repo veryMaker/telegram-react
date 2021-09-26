@@ -17,29 +17,34 @@ class Animator {
 
     start = () => {
         this.stopped = false;
-        this.id = requestAnimationFrame(this.startAnim);
+        this.id = requestAnimationFrame(this.startInternal);
     };
 
-    startAnim = timeStamp => {
-        const { start, duration } = this;
+    startInternal = timeStamp => {
+        const { startTime, duration } = this;
 
-        this.start = timeStamp;
-        this.end = start + duration;
+        this.startTime = timeStamp;
+        this.endTime = startTime + duration;
         this.draw(timeStamp);
     };
 
     draw = now => {
-        const { stopped, duration, start, options } = this;
+        const { stopped, duration, startTime, options } = this;
+
+        if (now - startTime > duration && options.every(x => x.to === x.last)) {
+            this.stopped = true;
+        }
 
         if (stopped) return;
-        if (now - start >= duration) this.stopped = true;
 
-        const p = (now - start) / duration;
+        const time = Math.min(now - startTime, duration);
+        const p = duration === 0 ? 1.0 : time / duration;
         const val = Animator.outSine(p);
 
         options.forEach(x => {
             const { from, to, func } = x;
-            func(from + (to - from) * val);
+            x.last = from + (to - from) * val;
+            func(x.last);
         });
 
         this.id = requestAnimationFrame(this.draw);

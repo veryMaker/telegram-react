@@ -17,17 +17,20 @@ import FileStore from '../../../Stores/FileStore';
 import './Photo.css';
 
 class Photo extends React.Component {
-    constructor(props) {
-        super(props);
+    state = { };
 
+    static getDerivedStateFromProps(props, state) {
         const { photo, size, thumbnailSize } = props;
-        const photoSize = getSize(photo.sizes, size);
-        const thumbnail = getSize(photo.sizes, thumbnailSize);
+        if (photo !== state.prevPhoto) {
+            return {
+                prevPhoto: photo,
+                photoSize: getSize(photo.sizes, size),
+                thumbSize: getSize(photo.sizes, thumbnailSize),
+                minithumbnail: photo ? photo.minithumbnail : null
+            };
+        }
 
-        this.state = {
-            photoSize: photoSize,
-            thumbnail: thumbnail
-        };
+        return null;
     }
 
     componentDidMount() {
@@ -35,48 +38,67 @@ class Photo extends React.Component {
     }
 
     componentWillUnmount() {
-        FileStore.removeListener('clientUpdatePhotoBlob', this.onClientUpdatePhotoBlob);
+        FileStore.off('clientUpdatePhotoBlob', this.onClientUpdatePhotoBlob);
     }
 
     onClientUpdatePhotoBlob = update => {
-        const { photoSize } = this.state;
+        const { photoSize, thumbSize } = this.state;
         const { fileId } = update;
 
-        if (!photoSize) return;
-
-        if (photoSize.photo.id === fileId) {
+        if (photoSize && photoSize.photo && photoSize.photo.id === fileId) {
+            this.forceUpdate();
+        } else if (thumbSize && thumbSize.photo && thumbSize.photo.id === fileId) {
             this.forceUpdate();
         }
     };
 
     render() {
-        const { displaySize, openMedia, showProgress, style } = this.props;
-        const { thumbnail, photoSize } = this.state;
+        const { className, displaySize, stretch, openMedia, showProgress, title, caption, type, style } = this.props;
+        const { thumbSize, photoSize, minithumbnail } = this.state;
 
         if (!photoSize) return null;
 
+        const miniSrc = minithumbnail ? 'data:image/jpeg;base64, ' + minithumbnail.data : null;
+        const thumbSrc = getSrc(thumbSize ? thumbSize.photo : null);
         const src = getSrc(photoSize.photo);
-        const thumbnailSrc = getSrc(thumbnail ? thumbnail.photo : null);
-        const isBlurred = isBlurredThumbnail(thumbnail);
+        const isBlurred = isBlurredThumbnail(thumbSize, displaySize);
 
-        const fitPhotoSize = getFitSize(photoSize, displaySize);
+        const fitPhotoSize = getFitSize(photoSize, displaySize, stretch);
         if (!fitPhotoSize) return null;
 
         const photoStyle = {
-            width: fitPhotoSize.width,
+            minWidth: stretch ? fitPhotoSize.width : null,
+            width: !stretch ? fitPhotoSize.width : null,
             height: fitPhotoSize.height,
             ...style
         };
 
+        const hasSrc = Boolean(src || thumbSrc);
+
+        // console.log('[photo] render', [thumbSize, thumbSrc, photoSize, src, minithumbnail]);
+
         return (
-            <div className='photo' style={photoStyle} onClick={openMedia}>
-                {src ? (
-                    <img className='photo-image' draggable={false} src={src} alt='' />
-                ) : (
+            <div
+                className={classNames(className, 'photo', {
+                    'photo-big': type === 'message',
+                    'photo-title': title,
+                    'photo-caption': caption,
+                    pointer: openMedia
+                })}
+                style={photoStyle}
+                onClick={openMedia}>
+                {miniSrc && (
                     <img
-                        className={classNames('photo-image', { 'media-blurred': isBlurred })}
+                        className={classNames('photo-preview', 'media-mini-blurred')}
+                        src={miniSrc}
+                        alt=''
+                    />
+                )}
+                {hasSrc && (
+                    <img
+                        className={classNames('photo-thumbnail', { 'media-blurred': !src && thumbSrc && isBlurred })}
                         draggable={false}
-                        src={thumbnailSrc}
+                        src={src || thumbSrc}
                         alt=''
                     />
                 )}
@@ -87,8 +109,8 @@ class Photo extends React.Component {
 }
 
 Photo.propTypes = {
-    chatId: PropTypes.number.isRequired,
-    messageId: PropTypes.number.isRequired,
+    chatId: PropTypes.number,
+    messageId: PropTypes.number,
     photo: PropTypes.object.isRequired,
     openMedia: PropTypes.func,
     showProgress: PropTypes.bool,
@@ -96,6 +118,7 @@ Photo.propTypes = {
     size: PropTypes.number,
     thumbnailSize: PropTypes.number,
     displaySize: PropTypes.number,
+    stretch: PropTypes.bool,
     style: PropTypes.object
 };
 
@@ -103,6 +126,7 @@ Photo.defaultProps = {
     size: PHOTO_SIZE,
     thumbnailSize: PHOTO_THUMBNAIL_SIZE,
     displaySize: PHOTO_DISPLAY_SIZE,
+    stretch: false,
     showProgress: true
 };
 

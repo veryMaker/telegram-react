@@ -7,33 +7,36 @@
 
 import React from 'react';
 import PropTypes from 'prop-types';
-import copy from 'copy-to-clipboard';
 import classNames from 'classnames';
-import { compose } from 'recompose';
-import withStyles from '@material-ui/core/styles/withStyles';
+import { compose } from '../../Utils/HOC';
 import { withSnackbar } from 'notistack';
 import { withTranslation } from 'react-i18next';
-import PhotoIcon from '@material-ui/icons/Photo';
 import AlternateEmailIcon from '@material-ui/icons/AlternateEmail';
+import GroupIcon from '@material-ui/icons/Group';
 import CallIcon from '@material-ui/icons/Call';
+import CloseIcon from '../../Assets/Icons/Close';
+import Divider from '@material-ui/core/Divider';
 import ErrorOutlineIcon from '@material-ui/icons/ErrorOutline';
-import CloseIcon from '@material-ui/icons/Close';
-import Snackbar from '@material-ui/core/Snackbar';
+import HeadsetIcon from '@material-ui/icons/Headset';
 import IconButton from '@material-ui/core/IconButton';
+import InsertDriveFileIcon from '../../Assets/Icons/Document2';
+import InsertLinkIcon from '@material-ui/icons/InsertLink';
+import List from '@material-ui/core/List';
 import ListItem from '@material-ui/core/ListItem';
-import Button from '@material-ui/core/Button';
 import ListItemIcon from '@material-ui/core/ListItemIcon';
 import ListItemText from '@material-ui/core/ListItemText';
-import Divider from '@material-ui/core/Divider';
-import List from '@material-ui/core/List';
+import MicIcon from '@material-ui/icons/Mic';
+import PhotoIcon from '../../Assets/Icons/SharedMedia';
 import Typography from '@material-ui/core/Typography';
-import CircularProgress from '../ColumnMiddle/MainMenuButton';
-import NotificationTimer from '../Additional/NotificationTimer';
-import UserControl from '../Tile/UserControl';
-import ChatControl from '../Tile/ChatControl';
+import VideocamIcon from '@material-ui/icons/Videocam';
+import User from '../Tile/User';
+import Chat from '../Tile/Chat';
 import ChatDetailsHeader from './ChatDetailsHeader';
 import NotificationsListItem from './NotificationsListItem';
-import MoreListItem from './MoreListItem';
+import SharedMediaTabs from './SharedMedia/SharedMediaTabs';
+import SharedMediaContent from './SharedMedia/SharedMediaContent';
+import { copy } from '../../Utils/Text';
+import { getFormattedText, getUrlMentionHashtagEntities } from '../../Utils/Message';
 import {
     getChatUsername,
     getChatPhoneNumber,
@@ -42,60 +45,45 @@ import {
     getGroupChatMembers,
     getChatFullInfo,
     isPrivateChat,
-    getChatUserId,
-    isMeChat
+    isMeChat, isChannelChat
 } from '../../Utils/Chat';
 import { getUserStatusOrder } from '../../Utils/User';
 import { loadUsersContent, loadChatsContent } from '../../Utils/File';
-import { formatPhoneNumber } from '../../Utils/Common';
-import { openChat } from '../../Actions/Client';
+import { formatPhoneNumber } from '../../Utils/Phone';
+import { openChat, openUser, setProfileMediaViewerContent } from '../../Actions/Client';
 import { withRestoreRef, withSaveRef } from '../../Utils/HOC';
-import { NOTIFICATION_AUTO_HIDE_DURATION_MS } from '../../Constants';
-import ChatStore from '../../Stores/ChatStore';
-import UserStore from '../../Stores/UserStore';
+import { NOTIFICATION_AUTO_HIDE_DURATION_MS, SCROLL_PRECISION } from '../../Constants';
 import BasicGroupStore from '../../Stores/BasicGroupStore';
-import SupergroupStore from '../../Stores/SupergroupStore';
-import OptionStore from '../../Stores/OptionStore';
+import ChatStore from '../../Stores/ChatStore';
 import FileStore from '../../Stores/FileStore';
-import ApplicationStore from '../../Stores/ApplicationStore';
+import MessageStore from '../../Stores/MessageStore';
+import OptionStore from '../../Stores/OptionStore';
+import SupergroupStore from '../../Stores/SupergroupStore';
+import UserStore from '../../Stores/UserStore';
 import TdLibController from '../../Controllers/TdLibController';
+import './MoreListItem.css';
 import './ChatDetails.css';
-
-const styles = theme => ({
-    closeIconButton: {
-        margin: '8px -2px 8px 12px'
-    },
-    nested: {
-        // paddingLeft: theme.spacing.unit * 4,
-    },
-    close: {
-        padding: theme.spacing.unit / 2
-    },
-    listItem: {
-        padding: '11px 22px'
-    }
-});
 
 class ChatDetails extends React.Component {
     constructor(props) {
         super(props);
 
-        this.chatDetailsListRef = React.createRef();
+        this.listRef = React.createRef();
+        this.dividerRef = React.createRef();
+        this.mediaRef = React.createRef();
 
         const { chatId } = this.props;
 
         this.members = new Map();
         this.state = {
-            prevChatId: chatId,
-            hasGroupsInCommon: false
+            prevChatId: chatId
         };
     }
 
     static getDerivedStateFromProps(props, state) {
         if (props.chatId !== state.prevChatId) {
             return {
-                prevChatId: props.chatId,
-                hasGroupsInCommon: false
+                prevChatId: props.chatId
             };
         }
 
@@ -105,34 +93,37 @@ class ChatDetails extends React.Component {
     getSnapshotBeforeUpdate(prevProps, prevState) {
         const { chatId } = this.props;
 
-        const list = this.chatDetailsListRef.current;
+        const { current: list } = this.listRef;
         const { scrollTop, scrollHeight, offsetHeight } = list;
         const snapshot = {
-            scrollTop: scrollTop,
-            scrollHeight: scrollHeight,
-            offsetHeight: offsetHeight
+            scrollTop,
+            scrollHeight,
+            offsetHeight
         };
 
-        console.log(
-            `[ChatDetails] getSnapshotBeforeUpdate chatId=${chatId} scrollTop=${scrollTop} scrollHeight=${scrollHeight} offsetHeight=${offsetHeight}`
-        );
+        // console.log(
+        //     `[ChatDetails] getSnapshotBeforeUpdate chatId=${chatId} scrollTop=${scrollTop} scrollHeight=${scrollHeight} offsetHeight=${offsetHeight}`
+        // );
 
         return snapshot;
     }
 
     shouldComponentUpdate(nextProps, nextState) {
-        const { chatId, theme } = this.props;
-        const { hasGroupsInCommon } = this.state;
+        const { chatId, theme, counters, migratedCounters } = this.props;
 
         if (nextProps.chatId !== chatId) {
             return true;
         }
 
-        if (nextProps.theme !== theme) {
+        if (nextProps.counters !== counters) {
             return true;
         }
 
-        if (nextState.hasGroupsInCommon !== hasGroupsInCommon) {
+        if (nextProps.migratedCounters !== migratedCounters) {
+            return true;
+        }
+
+        if (nextProps.theme !== theme) {
             return true;
         }
 
@@ -142,27 +133,20 @@ class ChatDetails extends React.Component {
     componentDidUpdate(prevProps, prevState, snapshot) {
         const { chatId } = this.props;
         if (prevProps.chatId !== chatId) {
-            this.handleSelectChat();
+            this.loadContent();
         }
 
-        console.log('chatDetailsListRef', this.chatDetailsListRef);
-        const list = this.chatDetailsListRef.current;
+        const { current: list } = this.listRef;
         const { scrollTop, scrollHeight, offsetHeight } = snapshot;
-        console.log(
-            `[ChatDetails] componentDidUpdate before chatId=${chatId} list.scrollTop=${
-                list.scrollTop
-            } list.offsetHeight=${list.offsetHeight} list.scrollHeight=${list.scrollHeight}`
-        );
-        list.scrollTop = scrollTop + (list.scrollHeight - scrollHeight);
-        console.log(
-            `[ChatDetails] componentDidUpdate after chatId=${chatId} list.scrollTop=${
-                list.scrollTop
-            } list.offsetHeight=${list.offsetHeight} list.scrollHeight=${list.scrollHeight}`
-        );
+        if (prevProps.chatId === chatId) {
+            list.scrollTop = scrollTop;
+        } else {
+            list.scrollTop = 0;
+        }
     }
 
     componentDidMount() {
-        this.handleSelectChat();
+        this.loadContent();
 
         UserStore.on('updateUserStatus', this.onUpdateUserStatus);
         UserStore.on('updateUserFullInfo', this.onUpdateUserFullInfo);
@@ -171,10 +155,10 @@ class ChatDetails extends React.Component {
     }
 
     componentWillUnmount() {
-        UserStore.removeListener('updateUserStatus', this.onUpdateUserStatus);
-        UserStore.removeListener('updateUserFullInfo', this.onUpdateUserFullInfo);
-        BasicGroupStore.removeListener('updateBasicGroupFullInfo', this.onUpdateBasicGroupFullInfo);
-        SupergroupStore.removeListener('updateSupergroupFullInfo', this.onUpdateSupergroupFullInfo);
+        UserStore.off('updateUserStatus', this.onUpdateUserStatus);
+        UserStore.off('updateUserFullInfo', this.onUpdateUserFullInfo);
+        BasicGroupStore.off('updateBasicGroupFullInfo', this.onUpdateBasicGroupFullInfo);
+        SupergroupStore.off('updateSupergroupFullInfo', this.onUpdateSupergroupFullInfo);
     }
 
     onUpdateBasicGroupFullInfo = update => {
@@ -186,8 +170,6 @@ class ChatDetails extends React.Component {
             chat.type['@type'] === 'chatTypeBasicGroup' &&
             chat.type.basic_group_id === update.basic_group_id
         ) {
-            this.handleSelectChat();
-
             this.forceUpdate(); // update bio
         }
     };
@@ -224,47 +206,22 @@ class ChatDetails extends React.Component {
         }
     };
 
-    handleSelectChat = () => {
-        this.getFullInfo();
-
-        this.getGroupsInCommon();
-
+    loadContent = () => {
         this.loadChatContents();
     };
 
     loadChatContents = () => {
-        const { chatId } = this.props;
+        const { chatId, popup } = this.props;
 
         const store = FileStore.getStore();
 
         loadChatsContent(store, [chatId]);
         const members = getGroupChatMembers(chatId).map(x => x.user_id);
         loadUsersContent(store, members);
-    };
 
-    getFullInfo = () => {
-        const { chatId } = this.props;
-
-        getChatFullInfo(chatId);
-    };
-
-    getGroupsInCommon = async () => {
-        const { chatId } = this.props;
-
-        const isGroup = isGroupChat(chatId);
-        if (isGroup) return;
-
-        const isMe = isMeChat(chatId);
-        if (isMe) return;
-
-        const result = await TdLibController.send({
-            '@type': 'getGroupsInCommon',
-            user_id: getChatUserId(chatId),
-            offset_chat_id: 0,
-            limit: 1
-        });
-
-        this.setState({ hasGroupsInCommon: result.chat_ids.length > 0 });
+        if (popup) {
+            getChatFullInfo(chatId);
+        }
     };
 
     handleUsernameHint = () => {
@@ -277,37 +234,28 @@ class ChatDetails extends React.Component {
 
         copy(usernameLink + username);
 
-        const key = `${chatId}_copy_username`;
-        const message = t('TextCopied');
-        const action = null;
-
-        this.handleScheduledAction(key, message, action);
+        this.handleScheduledAction(t('LinkCopied'));
     };
 
-    handleScheduledAction = (key, message, action) => {
-        if (!key) return;
+    handleScheduledAction = message => {
+        const { enqueueSnackbar, closeSnackbar } = this.props;
 
-        const { enqueueSnackbar, classes } = this.props;
-        if (!enqueueSnackbar) return;
-
-        const TRANSITION_DELAY = 150;
-        if (
-            ApplicationStore.addScheduledAction(key, NOTIFICATION_AUTO_HIDE_DURATION_MS + 2 * TRANSITION_DELAY, action)
-        ) {
-            enqueueSnackbar(message, {
-                autoHideDuration: NOTIFICATION_AUTO_HIDE_DURATION_MS,
-                action: [
-                    <IconButton
-                        key='close'
-                        aria-label='Close'
-                        color='inherit'
-                        className={classes.close}
-                        onClick={() => ApplicationStore.removeScheduledAction(key)}>
-                        <CloseIcon />
-                    </IconButton>
-                ]
-            });
-        }
+        const snackKey = enqueueSnackbar(message, {
+            autoHideDuration: NOTIFICATION_AUTO_HIDE_DURATION_MS,
+            preventDuplicate: true,
+            action: [
+                <IconButton
+                    key='close'
+                    aria-label='Close'
+                    color='inherit'
+                    className='notification-close-button'
+                    onClick={() => {
+                        closeSnackbar(snackKey);
+                    }}>
+                    <CloseIcon />
+                </IconButton>
+            ]
+        });
     };
 
     handlePhoneHint = () => {
@@ -317,24 +265,27 @@ class ChatDetails extends React.Component {
 
         copy(formatPhoneNumber(phoneNumber));
 
-        const key = `${chatId}_copy_phone`;
-        const message = t('PhoneCopied');
-        const action = null;
-
-        this.handleScheduledAction(key, message, action);
+        this.handleScheduledAction(t('PhoneCopied'));
     };
 
     handleHeaderClick = () => {
-        this.chatDetailsListRef.current.scrollTop = 0;
+        this.listRef.current.scrollTop = 0;
     };
 
     handleOpenViewer = () => {
-        const { chatId } = this.props;
+        const { chatId, popup } = this.props;
         const chat = ChatStore.get(chatId);
         if (!chat) return;
         if (!chat.photo) return;
 
-        ApplicationStore.setProfileMediaViewerContent({ chatId: chatId });
+        setProfileMediaViewerContent({ chatId });
+
+        if (popup) {
+            TdLibController.clientUpdate({
+                '@type': 'clientUpdateDialogChatId',
+                chatId: 0
+            });
+        }
     };
 
     handleOpenChat = () => {
@@ -350,39 +301,100 @@ class ChatDetails extends React.Component {
         }
     };
 
-    getContentHeight = () => {
-        if (!this.chatDetailsListRef) return 0;
+    handleOpenUser = userId => {
+        openUser(userId, true);
+    };
 
-        return this.chatDetailsListRef.current.clientHeight;
+    getContentHeight = () => {
+        if (!this.listRef) return 0;
+
+        return this.listRef.current.clientHeight;
+    };
+
+    handleTabClick = event => {
+        const { current: list } = this.listRef;
+        if (!list) return;
+
+        const { current: divider } = this.dividerRef;
+        if (!divider) return;
+        if (divider.offsetTop === list.scrollTop) return;
+
+        if (list.scrollTop < divider.offsetTop) {
+            list.scrollTo({
+                top: divider.offsetTop,
+                behavior: 'smooth'
+            });
+        } else {
+            list.scrollTop = divider.offsetTop + 70;
+            setTimeout(() => {
+                list.scrollTo({
+                    top: divider.offsetTop,
+                    behavior: 'smooth'
+                });
+            }, 0);
+        }
+        // requestAnimationFrame(() => {
+        //     list.scrollTo({
+        //         top: divider.offsetTop,
+        //         behavior: 'smooth'
+        //     });
+        // });
+    };
+
+    handleScroll = event => {
+        if (!this.listRef) return;
+        if (!this.mediaRef) return;
+
+        const { current: list } = this.listRef;
+        if (!list) return;
+
+        const { current: media } = this.mediaRef;
+        if (!media) return;
+
+        if (list.scrollTop + list.offsetHeight >= list.scrollHeight - SCROLL_PRECISION) {
+            media.handleScroll(event);
+        }
+
+        media.handleVirtScroll(event, list);
     };
 
     render() {
         const {
-            t,
+            backButton,
             className,
             chatId,
-            classes,
-            onOpenSharedMedia,
-            onOpenGroupsInCommon,
+            onClose,
             popup,
-            backButton,
-            onClose
+            t
         } = this.props;
-        const { hasGroupsInCommon } = this.state;
+
+        let { counters, migratedCounters } = this.props;
+        counters = counters || [0, 0, 0, 0, 0, 0];
+        migratedCounters = migratedCounters || [0, 0, 0, 0, 0, 0];
+
+        const [photoCount, videoCount, documentCount, audioCount, urlCount, voiceAndVideoNoteCount] = counters.map(
+            (el, i) => el + migratedCounters[i]
+        );
 
         const chat = ChatStore.get(chatId);
         if (!chat) {
             return (
                 <div className='chat-details'>
                     <ChatDetailsHeader onClose={onClose} />
-                    <div ref={this.chatDetailsListRef} className='chat-details-list' />
+                    <div ref={this.listRef} className={classNames('chat-details-list', 'scrollbars-hidden')} />
                 </div>
             );
         }
 
+        let groupInCommonCount = 0;
+        if (isPrivateChat(chatId)) {
+            const fullInfo = UserStore.getFullInfo(chat.type.user_id);
+            groupInCommonCount = fullInfo ? fullInfo.group_in_common_count : groupInCommonCount;
+        }
+
         const username = getChatUsername(chatId);
         const phoneNumber = getChatPhoneNumber(chatId);
-        const bio = getChatBio(chatId);
+        let bio = getChatBio(chatId);
         const isGroup = isGroupChat(chatId);
         const isMe = isMeChat(chatId);
 
@@ -401,12 +413,41 @@ class ChatDetails extends React.Component {
             return getUserStatusOrder(y) - getUserStatusOrder(x);
         });
         const items = sortedUsers.map(user => (
-            <ListItem button className={classes.listItem} key={user.id}>
-                <UserControl userId={user.id} onSelect={this.handleSelectUser} />
+            <ListItem button className='list-item' key={user.id}>
+                <User userId={user.id} onSelect={this.handleOpenUser} />
             </ListItem>
         ));
 
         const { photo } = chat;
+
+        if (isGroupChat(chatId) || isChannelChat(chatId)) {
+            const { text: bioText, entities: bioEntities } = getUrlMentionHashtagEntities(bio, []);
+            if (bioEntities.length > 0) {
+                bio = getFormattedText({ '@type': 'formattedText', text: bioText, entities: bioEntities });
+            }
+        }
+
+        let openChatTitle = t('SendMessage');
+        if (isChannelChat(chatId)) {
+            openChatTitle = t('OpenChannel');
+        } else if (isGroupChat(chatId)) {
+            openChatTitle = t('OpenGroup');
+        }
+
+        let chatUrl = ''
+        if (username) {
+            if (isPrivateChat(chatId)) {
+                chatUrl = username;
+            } else {
+                const tMeUrl = OptionStore.get('t_me_url')
+                    .value
+                    .toLowerCase()
+                    .replace('https://', '')
+                    .replace('http://', '');
+
+                chatUrl = tMeUrl + username;
+            }
+        }
 
         const content = (
             <>
@@ -416,110 +457,82 @@ class ChatDetails extends React.Component {
                     onClose={onClose}
                     onClick={this.handleHeaderClick}
                 />
-                <div ref={this.chatDetailsListRef} className='chat-details-list'>
+                <div
+                    ref={this.listRef}
+                    className={classNames('chat-details-list', 'scrollbars-hidden')}
+                    onScroll={this.handleScroll}>
                     <div className='chat-details-info'>
-                        <ChatControl
+                        <Chat
                             chatId={chatId}
-                            showStatus={popup}
+                            big={true}
+                            showStatus={true}
                             showSavedMessages={!popup}
                             onTileSelect={photo ? this.handleOpenViewer : null}
                         />
-                    </div>
-                    {(username || phoneNumber || bio) && (
-                        <List>
-                            {username && (
-                                <ListItem button className={classes.listItem} onClick={this.handleUsernameHint}>
-                                    <ListItemIcon>
-                                        <AlternateEmailIcon />
-                                    </ListItemIcon>
-                                    <ListItemText
-                                        primary={
-                                            <Typography variant='inherit' noWrap>
-                                                {username}
-                                            </Typography>
-                                        }
-                                    />
-                                </ListItem>
-                            )}
-                            {phoneNumber && (
-                                <>
-                                    <ListItem button className={classes.listItem} onClick={this.handlePhoneHint}>
+                        {!isMe && (
+                            <List className='chat-details-items'>
+                                {bio && (
+                                    <ListItem className='list-item-rounded' alignItems='flex-start'>
+                                        <ListItemIcon>
+                                            <ErrorOutlineIcon className='chat-details-info-icon' />
+                                        </ListItemIcon>
+                                        <ListItemText
+                                            primary={bio}
+                                            secondary={isPrivateChat(chatId) ? t('Bio') : t('DescriptionPlaceholder')}
+                                            style={{ whiteSpace: 'pre-wrap', wordWrap: 'break-word' }}
+                                        />
+                                    </ListItem>
+                                )}
+                                {username && (
+                                    <ListItem button className='list-item-rounded' alignItems='flex-start' onClick={this.handleUsernameHint}>
+                                        <ListItemIcon>
+                                            <AlternateEmailIcon />
+                                        </ListItemIcon>
+                                        <ListItemText
+                                            primary={
+                                                <Typography variant='inherit' noWrap>
+                                                    {chatUrl}
+                                                </Typography>
+                                            }
+                                            secondary={isPrivateChat(chatId) ? t('Username') : t('InviteLink')}
+                                        />
+                                    </ListItem>
+                                )}
+                                {isPrivateChat(chatId) && (
+                                    <ListItem button className='list-item-rounded' alignItems='flex-start' onClick={this.handlePhoneHint}>
                                         <ListItemIcon>
                                             <CallIcon />
                                         </ListItemIcon>
                                         <ListItemText
                                             primary={
                                                 <Typography variant='inherit' noWrap>
-                                                    {formatPhoneNumber(phoneNumber)}
+                                                    {phoneNumber ? formatPhoneNumber(phoneNumber) : t('PhoneHidden')}
                                                 </Typography>
                                             }
+                                            secondary={t('Phone')}
                                         />
                                     </ListItem>
-                                </>
-                            )}
-                            {bio && (
-                                <ListItem className={classes.listItem}>
-                                    <ListItemIcon>
-                                        <ErrorOutlineIcon className='chat-details-info-icon' />
-                                    </ListItemIcon>
-                                    <ListItemText
-                                        primary={bio}
-                                        style={{ whiteSpace: 'pre-wrap', wordWrap: 'break-word' }}
-                                    />
-                                </ListItem>
-                            )}
-                        </List>
-                    )}
-                    <Divider />
-                    <List>
-                        {!isMe && <NotificationsListItem chatId={chatId} />}
-                        {isGroup && <MoreListItem chatId={chatId} />}
-                        {!isGroup && (
-                            <ListItem button className={classes.listItem} onClick={this.handleOpenChat}>
-                                <ListItemText
-                                    inset
-                                    primary={
-                                        <Typography color='primary' variant='inherit' noWrap>
-                                            {t('SendMessage').toUpperCase()}
-                                        </Typography>
-                                    }
-                                />
-                            </ListItem>
+                                )}
+                                <NotificationsListItem chatId={chatId} />
+                                {popup && (
+                                    <ListItem button className='list-item-rounded' alignItems='flex-start' onClick={this.handleOpenChat}>
+                                        <ListItemText
+                                            primary={
+                                                <Typography color='primary' variant='inherit' noWrap>
+                                                    {openChatTitle.toUpperCase()}
+                                                </Typography>
+                                            }
+                                            style={{ paddingLeft: 40 }}
+                                        />
+                                    </ListItem>
+                                )}
+                            </List>
                         )}
-                    </List>
-                    <Divider />
-                    <List>
-                        <ListItem button disabled className={classes.listItem} onClick={onOpenSharedMedia}>
-                            <ListItemIcon>
-                                <PhotoIcon />
-                            </ListItemIcon>
-                            <ListItemText
-                                primary={
-                                    <Typography variant='inherit' noWrap>
-                                        {t('SharedMedia')}
-                                    </Typography>
-                                }
-                            />
-                        </ListItem>
-                        {hasGroupsInCommon && (
-                            <ListItem button className={classes.listItem} onClick={onOpenGroupsInCommon}>
-                                <ListItemText
-                                    inset
-                                    primary={
-                                        <Typography variant='inherit' noWrap>
-                                            {t('GroupsInCommon')}
-                                        </Typography>
-                                    }
-                                />
-                            </ListItem>
-                        )}
-                    </List>
-                    {items.length > 0 && (
-                        <>
-                            <Divider />
-                            <List>{items}</List>
-                        </>
-                    )}
+                    </div>
+
+                    <div ref={this.dividerRef}/>
+                    <SharedMediaTabs chatId={chatId} onClick={this.handleTabClick}/>
+                    <SharedMediaContent ref={this.mediaRef} chatId={chatId} popup={popup}/>
                 </div>
             </>
         );
@@ -529,17 +542,21 @@ class ChatDetails extends React.Component {
 }
 
 ChatDetails.propTypes = {
-    chatId: PropTypes.number.isRequired,
+    chatId: PropTypes.number,
     popup: PropTypes.bool,
     onClose: PropTypes.func,
+    onOpenGroupInCommon: PropTypes.func,
+    onOpenSharedDocuments: PropTypes.func,
     onOpenSharedMedia: PropTypes.func,
-    onOpenGroupsInCommon: PropTypes.func
+    onOpenSharedLinks: PropTypes.func,
+    onOpenSharedPhotos: PropTypes.func,
+    onOpenSharedVideos: PropTypes.func,
+    onOpenSharedVoiceNotes: PropTypes.func
 };
 
 const enhance = compose(
     withSaveRef(),
     withTranslation(),
-    withStyles(styles, { withTheme: true }),
     withSnackbar,
     withRestoreRef()
 );

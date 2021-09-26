@@ -6,14 +6,22 @@
  */
 
 .dialogs-list {
-    overflow-y: auto;
+    /*margin-top: -3px;*/
+    background: var(--panel-background);
+    overflow-y: scroll;
     -webkit-overflow-scrolling: touch;
     overflow-x: hidden;
     height: 100%;
     transform: translateZ(0);
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    left: 0;
+    will-change: transform;
+    /*position: absolute;*/
+    /*top: 0;*/
+    /*right: 0;*/
+    /*bottom: 0;*/
+    /*left: 0;*/
+    padding: 4px 8px 8px;
+}
+
+.dialogs-list-item {
+    margin: 2px 0;
 }

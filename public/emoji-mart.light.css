@@ -50,7 +50,7 @@
     display: block;
     flex: 1 1 auto;
     text-align: center;
-    padding: 12px 4px;
+    padding: 14px 4px;
     overflow: hidden;
     transition: color .1s ease-out;
     margin: 0;
@@ -72,6 +72,7 @@
     bottom: -3px; left: 0;
     width: 100%; height: 3px;
     background-color: #464646;
+    display: none;
 }
 
 .emoji-mart-anchors i {
@@ -90,6 +91,7 @@
 .emoji-mart-scroll {
     overflow-y: scroll;
     -webkit-overflow-scrolling: touch;
+    overflow-x: hidden;
     height: 270px;
     margin-right: -15px;
     padding: 0 6px 6px 6px;
@@ -417,4 +419,10 @@
     overflow: hidden;
     clip: rect(0, 0, 0, 0);
     border: 0;
+}
+
+.emoji-picker-content .emoji-mart-category .emoji-mart-emoji,
+.emoji-picker-content .emoji-mart-category .emoji-mart-emoji span,
+.emoji-picker-content .emoji-mart-anchors button {
+    cursor: pointer;
 }

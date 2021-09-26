@@ -5,11 +5,34 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { EventEmitter } from 'events';
+import EventEmitter from '../Stores/EventEmitter';
 import packageJson from '../../package.json';
 import { stringToBoolean, getBrowser, getOSName } from '../Utils/Common';
-import { VERBOSITY_JS_MAX, VERBOSITY_JS_MIN, VERBOSITY_MAX, VERBOSITY_MIN } from '../Constants';
+import {
+    DATABASE_NAME, DATABASE_TEST_NAME,
+    VERBOSITY_JS_MAX,
+    VERBOSITY_JS_MIN,
+    VERBOSITY_MAX,
+    VERBOSITY_MIN,
+    WASM_FILE_HASH,
+    WASM_FILE_NAME
+} from '../Constants';
 import TdClient from 'tdweb/dist/tdweb';
+// import TdClient from '@arseny30/tdweb/dist/tdweb';
+// import TdClient from '../../public/tdweb';
+
+function databaseExists(dbname, callback) {
+    var req = indexedDB.open(dbname);
+    var existed = true;
+    req.onsuccess = function() {
+        req.result.close();
+        if (!existed) indexedDB.deleteDatabase(dbname);
+        callback(existed);
+    };
+    req.onupgradeneeded = function() {
+        existed = false;
+    };
+}
 
 class TdLibController extends EventEmitter {
     constructor() {
@@ -25,42 +48,48 @@ class TdLibController extends EventEmitter {
             mode: 'wasm'
         };
 
-        this.disableLog = false;
+        this.disableLog = true;
+        this.streaming = true;
+        this.calls = false;
 
-        this.setMaxListeners(Infinity);
+        this.setParameters(window.location);
     }
 
-    init = location => {
-        this.setParameters(location);
-
+    init = () => {
         const { verbosity, jsVerbosity, useTestDC, readOnly, fastUpdating, useDatabase, mode } = this.parameters;
+        const instanceName = useTestDC ? DATABASE_TEST_NAME : DATABASE_NAME;
 
-        let options = {
-            logVerbosityLevel: verbosity,
-            jsLogVerbosityLevel: jsVerbosity,
-            mode: mode, // 'wasm-streaming'/'wasm'/'asmjs'
-            prefix: useTestDC ? 'tdlib_test' : 'tdlib',
-            readOnly: readOnly,
-            isBackground: false,
-            useDatabase: useDatabase
-            // onUpdate: update => this.emit('update', update)
-        };
+        databaseExists(instanceName, exists => {
+            this.clientUpdate({ '@type': 'clientUpdateTdLibDatabaseExists', exists });
 
-        console.log(
-            `[TdLibController] (fast_updating=${fastUpdating}) Start client with params=${JSON.stringify(options)}`
-        );
+            let options = {
+                logVerbosityLevel: verbosity,
+                jsLogVerbosityLevel: jsVerbosity,
+                mode, // 'wasm-streaming', 'wasm', 'asmjs'
+                instanceName,
+                readOnly,
+                isBackground: false,
+                useDatabase,
+                wasmUrl: `${WASM_FILE_NAME}?_sw-precache=${WASM_FILE_HASH}`
+                // onUpdate: update => this.emit('update', update)
+            };
 
-        this.client = new TdClient(options);
-        this.client.onUpdate = update => {
-            if (!this.disableLog) {
-                if (update['@type'] === 'updateFile') {
-                    console.log('receive updateFile file_id=' + update.file.id, update);
-                } else {
-                    console.log('receive update', update);
+            console.log(
+                `[TdLibController] (fast_updating=${fastUpdating}) Start client with params=${JSON.stringify(options)}`
+            );
+
+            this.client = new TdClient(options);
+            this.client.onUpdate = update => {
+                if (!this.disableLog) {
+                    if (update['@type'] === 'updateFile') {
+                        console.log('receive updateFile file_id=' + update.file.id, update);
+                    } else {
+                        console.log('receive update', update);
+                    }
                 }
-            }
-            this.emit('update', update);
-        };
+                this.emit('update', update);
+            };
+        });
     };
 
     clientUpdate = update => {
@@ -127,15 +156,37 @@ class TdLibController extends EventEmitter {
         if (params.has('mode')) {
             this.parameters.mode = params.get('mode');
         }
+        if (params.has('clientlog')) {
+            this.disableLog = !stringToBoolean(params.get('clientlog'));
+        }
+        if (params.has('streaming')) {
+            this.streaming = stringToBoolean(params.get('streaming'));
+        }
+        if (params.has('calls')) {
+            this.calls = stringToBoolean(params.get('calls'));
+        }
     };
 
     send = request => {
+        if (!this.client) {
+            console.log('send (none init)', request);
+            return Promise.reject('tdweb client is not ready yet');
+        }
+
         if (!this.disableLog) {
             console.log('send', request);
-            return this.client.send(request).then(result => {
-                console.log('receive', result);
-                return result;
-            });
+
+            return this.client
+                .send(request)
+                .then(result => {
+                    console.log('send result', result);
+                    return result;
+                })
+                .catch(error => {
+                    console.error('send error', error);
+
+                    throw error;
+                });
         } else {
             return this.client.send(request);
         }
@@ -145,6 +196,7 @@ class TdLibController extends EventEmitter {
         const apiId = process.env.REACT_APP_TELEGRAM_API_ID;
         const apiHash = process.env.REACT_APP_TELEGRAM_API_HASH;
 
+        // console.log('[td] sendTdParameters', apiHash, apiId);
         if (!apiId || !apiHash) {
             if (
                 window.confirm(
@@ -184,6 +236,15 @@ class TdLibController extends EventEmitter {
             // }
         });
 
+        this.send({
+            '@type': 'setOption',
+            name: 'use_quick_ack',
+            value: {
+                '@type': 'optionValueBoolean',
+                value: true
+            }
+        });
+
         if (this.parameters.tag && this.parameters.tagVerbosity) {
             for (let i = 0; i < this.parameters.tag.length; i++) {
                 let tag = this.parameters.tag[i];
@@ -204,11 +265,12 @@ class TdLibController extends EventEmitter {
         });
     }
 
-    setChatId = (chatId, messageId = null) => {
+    setChatId = (chatId, messageId = null, options = { }) => {
         const update = {
             '@type': 'clientUpdateChatId',
-            chatId: chatId,
-            messageId: messageId
+            chatId,
+            messageId,
+            options
         };
 
         this.clientUpdate(update);
@@ -223,5 +285,5 @@ class TdLibController extends EventEmitter {
 }
 
 const controller = new TdLibController();
-
+window.controller = controller;
 export default controller;

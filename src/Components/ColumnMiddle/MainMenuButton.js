@@ -6,150 +6,62 @@
  */
 
 import React from 'react';
+import { withTranslation } from 'react-i18next';
 import IconButton from '@material-ui/core/IconButton';
-import MoreVertIcon from '@material-ui/icons/MoreVert';
+import ListItemIcon from '@material-ui/core/ListItemIcon';
+import ListItemText from '@material-ui/core/ListItemText';
 import Menu from '@material-ui/core/Menu';
 import MenuItem from '@material-ui/core/MenuItem';
-import Button from '@material-ui/core/Button';
-import DialogTitle from '@material-ui/core/DialogTitle';
-import Dialog from '@material-ui/core/Dialog';
-import DialogContentText from '@material-ui/core/DialogContentText';
-import DialogContent from '@material-ui/core/DialogContent';
-import DialogActions from '@material-ui/core/DialogActions';
-import withStyles from '@material-ui/core/styles/withStyles';
-import { withSnackbar } from 'notistack';
-import { compose } from 'recompose';
-import ChatTileControl from '../Tile/ChatTileControl';
-import NotificationTimer from '../Additional/NotificationTimer';
-import { canClearHistory, canDeleteChat, getChatShortTitle, isPrivateChat } from '../../Utils/Chat';
-import { NOTIFICATION_AUTO_HIDE_DURATION_MS } from '../../Constants';
-import ApplicationStore from '../../Stores/ApplicationStore';
+import ReportOutlinedIcon from '@material-ui/icons/ReportOutlined';
+import CallOutlinedIcon from '@material-ui/icons/CallOutlined';
+import BlockIcon from '../../Assets/Icons/Block';
+import BroomIcon from '../../Assets/Icons/Broom';
+import DeleteIcon from '../../Assets/Icons/Delete';
+import GroupIcon from '../../Assets/Icons/Group';
+import MoreVertIcon from '../../Assets/Icons/More';
+import PhoneIcon from '../../Assets/Icons/Phone';
+import UnpinIcon from '../../Assets/Icons/PinOff';
+import UserIcon from '../../Assets/Icons/User';
+import {
+    canClearHistory,
+    canDeleteChat,
+    getViewInfoTitle,
+    isPrivateChat,
+    getDeleteChatTitle,
+    hasOnePinnedMessage,
+    canSwitchBlocked,
+    getChatSender,
+    canManageVoiceChats,
+    canBeReported, getChatUserId, canBeCalled
+} from '../../Utils/Chat';
+import { clearHistory, leaveChat, openReportChat } from '../../Actions/Chat';
+import { requestBlockSender, unblockSender } from '../../Actions/Message';
+import { requestUnpinMessage, showAlert } from '../../Actions/Client';
+import AppStore from '../../Stores/ApplicationStore';
+import CallStore from '../../Stores/CallStore';
 import ChatStore from '../../Stores/ChatStore';
-import SupergroupStore from '../../Stores/SupergroupStore';
+import LStore from '../../Stores/LocalizationStore';
+import MessageStore from '../../Stores/MessageStore';
 import TdLibController from '../../Controllers/TdLibController';
 import './MainMenuButton.css';
-
-const styles = theme => ({
-    menuIconButton: {
-        margin: '8px 12px 8px 0'
-    }
-});
-
-const menuAnchorOrigin = {
-    vertical: 'bottom',
-    horizontal: 'right'
-};
-
-const menuTransformOrigin = {
-    vertical: 'top',
-    horizontal: 'right'
-};
-
-class LeaveChatDialog extends React.Component {
-    getDeleteDialogText = chatId => {
-        const chat = ChatStore.get(chatId);
-        if (!chat) return null;
-        if (!chat.type) return null;
-
-        switch (chat.type['@type']) {
-            case 'chatTypeBasicGroup': {
-                return `Are you sure you want to leave group ${chat.title}?`;
-            }
-            case 'chatTypeSupergroup': {
-                const supergroup = SupergroupStore.get(chat.type.supergroup_id);
-                if (supergroup) {
-                    return supergroup.is_channel
-                        ? `Are you sure you want to leave channel ${chat.title}?`
-                        : `Are you sure you want to leave group ${chat.title}?`;
-                }
-
-                return null;
-            }
-            case 'chatTypePrivate':
-            case 'chatTypeSecret': {
-                return `Are you sure you want to delete chat with ${getChatShortTitle(chatId)}?`;
-            }
-        }
-
-        return null;
-    };
-
-    render() {
-        const { onClose, chatId, ...other } = this.props;
-
-        return (
-            <Dialog
-                transitionDuration={0}
-                onClose={() => onClose(false)}
-                aria-labelledby='delete-dialog-title'
-                {...other}>
-                <DialogTitle id='delete-dialog-title'>{getChatShortTitle(chatId)}</DialogTitle>
-                <DialogContent>
-                    <div className='delete-dialog-content'>
-                        <ChatTileControl chatId={chatId} />
-                        <DialogContentText id='delete-dialog-description'>
-                            {this.getDeleteDialogText(chatId)}
-                        </DialogContentText>
-                    </div>
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => onClose(false)} color='primary'>
-                        Cancel
-                    </Button>
-                    <Button onClick={() => onClose(true)} color='primary' autoFocus>
-                        Ok
-                    </Button>
-                </DialogActions>
-            </Dialog>
-        );
-    }
-}
-
-class ClearHistoryDialog extends React.Component {
-    render() {
-        const { onClose, chatId, ...other } = this.props;
-
-        return (
-            <Dialog
-                transitionDuration={0}
-                onClose={() => onClose(false)}
-                aria-labelledby='delete-dialog-title'
-                {...other}>
-                <DialogTitle id='delete-dialog-title'>{getChatShortTitle(chatId)}</DialogTitle>
-                <DialogContent>
-                    <div className='delete-dialog-content'>
-                        <ChatTileControl chatId={chatId} />
-                        <DialogContentText id='delete-dialog-description'>
-                            Are you sure you want clear history?
-                        </DialogContentText>
-                    </div>
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => onClose(false)} color='primary'>
-                        Cancel
-                    </Button>
-                    <Button onClick={() => onClose(true)} color='primary' autoFocus>
-                        Ok
-                    </Button>
-                </DialogActions>
-            </Dialog>
-        );
-    }
-}
 
 class MainMenuButton extends React.Component {
     constructor(props) {
         super(props);
 
         this.state = {
-            anchorEl: null,
-            openDelete: false,
-            openClearHistory: false
+            anchorEl: null
         };
     }
 
-    handleButtonClick = event => {
-        this.setState({ anchorEl: event.currentTarget });
+    handleButtonClick = async event => {
+        const { currentTarget: anchorEl } = event;
+
+        const chatId = AppStore.getChatId();
+        const chat = await TdLibController.send({ '@type': 'getChat', chat_id: chatId });
+        ChatStore.set(chat);
+
+        this.setState({ anchorEl });
     };
 
     handleMenuClose = () => {
@@ -164,151 +76,106 @@ class MainMenuButton extends React.Component {
     handleClearHistory = () => {
         this.handleMenuClose();
 
-        this.setState({ openClearHistory: true });
+        clearHistory(AppStore.getChatId());
     };
 
-    handleClearHistoryContinue = result => {
-        this.setState({ openClearHistory: false });
-
-        if (!result) return;
-
-        const chatId = ApplicationStore.getChatId();
-        const message = 'Messages deleted';
-        const request = {
-            '@type': 'deleteChatHistory',
-            chat_id: chatId,
-            remove_from_chat_list: false
-        };
-
-        this.handleScheduledAction(chatId, 'clientUpdateClearHistory', message, request);
-    };
-
-    handleLeave = () => {
+    handleDeleteChat = () => {
         this.handleMenuClose();
 
-        this.setState({ openDelete: true });
+        leaveChat(AppStore.getChatId());
     };
 
-    handleLeaveContinue = result => {
-        this.setState({ openDelete: false });
+    handleUnpin = () => {
+        this.handleMenuClose();
 
-        if (!result) return;
+        const chatId = AppStore.getChatId();
 
-        const chatId = ApplicationStore.getChatId();
-        const message = this.getLeaveChatNotification(chatId);
-        const request = isPrivateChat(chatId)
-            ? { '@type': 'deleteChatHistory', chat_id: chatId, remove_from_chat_list: true }
-            : { '@type': 'leaveChat', chat_id: chatId };
+        const media = MessageStore.getMedia(chatId);
+        if (!media) return false;
 
-        this.handleScheduledAction(chatId, 'clientUpdateLeaveChat', message, request);
+        const { pinned } = media;
+        if (!pinned) return false;
+        if (pinned.length !== 1) return false;
+
+        requestUnpinMessage(chatId, pinned[0].id);
     };
 
-    handleScheduledAction = (chatId, clientUpdateType, message, request) => {
-        if (!clientUpdateType) return;
+    handleSwitchBlocked = () => {
+        this.handleMenuClose();
 
-        const key = `${clientUpdateType} chatId=${chatId}`;
-        const action = async () => {
-            try {
-                await TdLibController.send(request);
-            } finally {
-                TdLibController.clientUpdate({ '@type': clientUpdateType, chatId: chatId, inProgress: false });
-            }
-        };
-        const cancel = () => {
-            TdLibController.clientUpdate({ '@type': clientUpdateType, chatId: chatId, inProgress: false });
-        };
-
-        const { enqueueSnackbar, classes } = this.props;
-        if (!enqueueSnackbar) return;
-
-        const TRANSITION_DELAY = 150;
-        if (ApplicationStore.addScheduledAction(key, NOTIFICATION_AUTO_HIDE_DURATION_MS, action, cancel)) {
-            TdLibController.clientUpdate({ '@type': clientUpdateType, chatId: chatId, inProgress: true });
-            enqueueSnackbar(message, {
-                autoHideDuration: NOTIFICATION_AUTO_HIDE_DURATION_MS - 2 * TRANSITION_DELAY,
-                action: [
-                    <IconButton key='progress' color='inherit' className='progress-button'>
-                        <NotificationTimer timeout={NOTIFICATION_AUTO_HIDE_DURATION_MS} />
-                    </IconButton>,
-                    <Button
-                        key='undo'
-                        color='primary'
-                        size='small'
-                        onClick={() => ApplicationStore.removeScheduledAction(key)}>
-                        UNDO
-                    </Button>
-                ]
-            });
-        }
-    };
-
-    getLeaveChatTitle = chatId => {
+        const chatId = AppStore.getChatId();
         const chat = ChatStore.get(chatId);
-        if (!chat) return null;
-        if (!chat.type) return null;
+        if (!chat) return;
 
-        switch (chat.type['@type']) {
-            case 'chatTypeBasicGroup': {
-                return 'Delete and exit';
-            }
-            case 'chatTypeSupergroup': {
-                const supergroup = SupergroupStore.get(chat.type.supergroup_id);
-                if (supergroup) {
-                    return supergroup.is_channel ? 'Leave channel' : 'Leave group';
-                }
-
-                return null;
-            }
-            case 'chatTypePrivate':
-            case 'chatTypeSecret': {
-                return 'Delete conversation';
-            }
+        const sender = getChatSender(chatId);
+        const { is_blocked } = chat;
+        if (is_blocked) {
+            unblockSender(sender);
+        } else {
+            requestBlockSender(sender);
         }
-
-        return null;
     };
 
-    getLeaveChatNotification = chatId => {
+    handleStartGroupCall = () => {
+        this.handleMenuClose();
+
+        const chatId = AppStore.getChatId();
         const chat = ChatStore.get(chatId);
-        if (!chat) return 'Chat deleted';
-        if (!chat.type) return 'Chat deleted';
+        if (!chat) return;
 
-        switch (chat.type['@type']) {
-            case 'chatTypeBasicGroup': {
-                return 'Chat deleted';
-            }
-            case 'chatTypeSupergroup': {
-                const supergroup = SupergroupStore.get(chat.type.supergroup_id);
-                if (supergroup) {
-                    return supergroup.is_channel ? 'Left channel' : 'Left group';
+        showAlert({
+            title: LStore.getString('StartVoipChatTitle'),
+            message: LStore.getString('StartVoipChatAlertText'),
+            ok: LStore.getString('Start'),
+            cancel: LStore.getString('Cancel'),
+            onResult: async result => {
+                if (result){
+                    await CallStore.startGroupCall(chatId);
                 }
-
-                return 'Chat deleted';
             }
-            case 'chatTypePrivate':
-            case 'chatTypeSecret': {
-                return 'Chat deleted';
-            }
-        }
+        })
+    };
 
-        return 'Chat deleted';
+    handleStartP2PCall = () => {
+        this.handleMenuClose();
+
+        const userId = getChatUserId(AppStore.getChatId());
+
+        CallStore.p2pStartCall(userId, false);
+    };
+
+    handleReport = () => {
+        this.handleMenuClose();
+
+        const { chatId } = this.props;
+
+        openReportChat(chatId, []);
     };
 
     render() {
-        const { classes } = this.props;
-        const { anchorEl, openDelete, openClearHistory } = this.state;
+        const { t } = this.props;
+        const { anchorEl } = this.state;
 
-        const chatId = ApplicationStore.getChatId();
+        const chatId = AppStore.getChatId();
+        const chat = ChatStore.get(chatId);
+        if (!chat) return null;
+
+        const { is_blocked, voice_chat_group_call_id } = chat;
+
         const clearHistory = canClearHistory(chatId);
         const deleteChat = canDeleteChat(chatId);
-        const leaveChatTitle = this.getLeaveChatTitle(chatId);
+        const deleteChatTitle = getDeleteChatTitle(chatId, t);
+        const unpinMessage = hasOnePinnedMessage(chatId);
+        const switchBlocked = canSwitchBlocked(chatId);
+        const manageVoiceChats = canManageVoiceChats(chatId);
+        const reported = canBeReported(chatId);
+        const called = canBeCalled(chatId);
 
         return (
             <>
                 <IconButton
                     aria-owns={anchorEl ? 'simple-menu' : null}
                     aria-haspopup='true'
-                    className={classes.menuIconButton}
                     aria-label='Menu'
                     onClick={this.handleButtonClick}>
                     <MoreVertIcon />
@@ -321,22 +188,80 @@ class MainMenuButton extends React.Component {
                     getContentAnchorEl={null}
                     disableAutoFocusItem
                     disableRestoreFocus={true}
-                    anchorOrigin={menuAnchorOrigin}
-                    transformOrigin={menuTransformOrigin}>
-                    <MenuItem onClick={this.handleChatInfo}>Chat info</MenuItem>
-                    {clearHistory && <MenuItem onClick={this.handleClearHistory}>Clear history</MenuItem>}
-                    {deleteChat && leaveChatTitle && <MenuItem onClick={this.handleLeave}>{leaveChatTitle}</MenuItem>}
+                    anchorOrigin={{
+                        vertical: 'bottom',
+                        horizontal: 'right'
+                    }}
+                    transformOrigin={{
+                        vertical: 'top',
+                        horizontal: 'right'
+                    }}>
+                    { CallStore.p2pCallsEnabled && called && (
+                        <MenuItem onClick={this.handleStartP2PCall}>
+                            <ListItemIcon>
+                                <CallOutlinedIcon />
+                            </ListItemIcon>
+                            <ListItemText primary={t('Call')} />
+                        </MenuItem>
+                    )}
+                    { !Boolean(voice_chat_group_call_id) && manageVoiceChats && (
+                        <MenuItem onClick={this.handleStartGroupCall}>
+                            <ListItemIcon>
+                                <PhoneIcon />
+                            </ListItemIcon>
+                            <ListItemText primary={t('StartVoipChat')} />
+                        </MenuItem>
+                    )}
+                    <MenuItem onClick={this.handleChatInfo}>
+                        <ListItemIcon>
+                            {isPrivateChat(chatId) ? <UserIcon /> : <GroupIcon />}
+                        </ListItemIcon>
+                        <ListItemText primary={getViewInfoTitle(chatId, t)} />
+                    </MenuItem>
+                    {clearHistory && (
+                        <MenuItem onClick={this.handleClearHistory}>
+                            <ListItemIcon>
+                                <BroomIcon />
+                            </ListItemIcon>
+                            <ListItemText primary={t('ClearHistory')} />
+                        </MenuItem>
+                    )}
+                    {deleteChat && deleteChatTitle && (
+                        <MenuItem onClick={this.handleDeleteChat}>
+                            <ListItemIcon>
+                                <DeleteIcon />
+                            </ListItemIcon>
+                            <ListItemText primary={deleteChatTitle} />
+                        </MenuItem>
+                    )}
+                    {unpinMessage && (
+                        <MenuItem onClick={this.handleUnpin}>
+                            <ListItemIcon>
+                                <UnpinIcon />
+                            </ListItemIcon>
+                            <ListItemText primary={t('UnpinMessageAlertTitle')} />
+                        </MenuItem>
+                    )}
+                    {switchBlocked && (
+                        <MenuItem onClick={this.handleSwitchBlocked}>
+                            <ListItemIcon>
+                                <BlockIcon />
+                            </ListItemIcon>
+                            <ListItemText primary={is_blocked ? t('Unblock') : t('BlockContact')} />
+                        </MenuItem>
+                    )}
+                    {reported && (
+                        <MenuItem onClick={this.handleReport}>
+                            <ListItemIcon>
+                                <ReportOutlinedIcon />
+                            </ListItemIcon>
+                            <ListItemText primary={t('ReportChat')} />
+                        </MenuItem>
+                    )}
                 </Menu>
-                <LeaveChatDialog chatId={chatId} open={openDelete} onClose={this.handleLeaveContinue} />
-                <ClearHistoryDialog chatId={chatId} open={openClearHistory} onClose={this.handleClearHistoryContinue} />
             </>
         );
     }
 }
 
-const enhance = compose(
-    withStyles(styles),
-    withSnackbar
-);
-
-export default enhance(MainMenuButton);
+export default withTranslation()(MainMenuButton);

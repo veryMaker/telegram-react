@@ -28,7 +28,7 @@ class DocumentAction extends React.Component {
     }
 
     componentWillUnmount() {
-        FileStore.removeListener('updateFile', this.onUpdateFile);
+        FileStore.off('updateFile', this.onUpdateFile);
     }
 
     onUpdateFile = update => {
@@ -56,7 +56,12 @@ class DocumentAction extends React.Component {
     }
 
     shouldComponentUpdate(nextProps, nextState) {
+        const { theme } = this.props;
         const { file, prevFile } = this.state;
+
+        if (nextProps.theme !== theme) {
+            return true;
+        }
 
         if (nextState.file !== file) {
             return true;
@@ -70,6 +75,7 @@ class DocumentAction extends React.Component {
     }
 
     render() {
+        const { date, meta } = this.props;
         const { file } = this.state;
         if (!file) return null;
 
@@ -88,14 +94,19 @@ class DocumentAction extends React.Component {
 
         return (
             <div className='document-action'>
-                <span>{sizeString}</span>
+                <span>
+                    {sizeString}
+                    {date && ` · ${date}`}
+                </span>
+                {meta}
             </div>
         );
     }
 }
 
 DocumentAction.propTypes = {
-    file: PropTypes.object.isRequired
+    file: PropTypes.object.isRequired,
+    date: PropTypes.string
 };
 
 export default DocumentAction;

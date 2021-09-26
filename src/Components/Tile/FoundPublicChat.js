@@ -7,39 +7,25 @@
 
 import React from 'react';
 import PropTypes from 'prop-types';
-import ListItem from '@material-ui/core/ListItem';
-import withStyles from '@material-ui/core/styles/withStyles';
 import classNames from 'classnames';
-import ChatTileControl from './ChatTileControl';
-import DialogTitleControl from './DialogTitleControl';
-import { getChatUsername, getGroupChatMembersCount } from '../../Utils/Chat';
-import ApplicationStore from '../../Stores/ApplicationStore';
+import ListItem from '@material-ui/core/ListItem';
+import Chat from './Chat';
+import { getChatUsername } from '../../Utils/Chat';
+import AppStore from '../../Stores/ApplicationStore';
 import './FoundPublicChat.css';
-
-const styles = theme => ({
-    listItem: {
-        padding: 0
-    },
-    listItemSelected: {
-        backgroundColor: theme.palette.primary.main + '!important'
-    },
-    foundPublicChatSubtitle: {
-        color: theme.palette.type === 'dark' ? theme.palette.text.secondary : '#70777b'
-    }
-});
 
 class FoundPublicChat extends React.Component {
     constructor(props) {
         super(props);
 
         this.state = {
-            nextChatId: ApplicationStore.getChatId(),
+            nextChatId: AppStore.getChatId(),
             previousChatId: null
         };
     }
 
     shouldComponentUpdate(nextProps, nextState) {
-        const { chatId, theme } = this.props;
+        const { chatId } = this.props;
 
         if (nextState.nextChatId === chatId) {
             return true;
@@ -49,19 +35,15 @@ class FoundPublicChat extends React.Component {
             return true;
         }
 
-        if (nextProps.theme !== theme) {
-            return true;
-        }
-
         return false;
     }
 
     componentDidMount() {
-        ApplicationStore.on('clientUpdateChatId', this.onClientUpdateChatId);
+        AppStore.on('clientUpdateChatId', this.onClientUpdateChatId);
     }
 
     componentWillUnmount() {
-        ApplicationStore.removeListener('clientUpdateChatId', this.onClientUpdateChatId);
+        AppStore.off('clientUpdateChatId', this.onClientUpdateChatId);
     }
 
     onClientUpdateChatId = update => {
@@ -73,44 +55,19 @@ class FoundPublicChat extends React.Component {
         });
     };
 
-    handleClick = () => {
-        const { chatId, onSelect } = this.props;
-        if (!onSelect) return;
-
-        onSelect(chatId);
-    };
-
     render() {
-        const { chatId, onClick, classes } = this.props;
-        const selectedChatId = this.state.nextChatId;
+        const { chatId, onClick } = this.props;
+        const { nextChatId: selectedChatId } = this.state;
 
         const username = getChatUsername(chatId);
-        const membersCount = getGroupChatMembersCount(chatId);
-        let subscribersString = '';
-        if (membersCount > 0) {
-            subscribersString = membersCount === 1 ? ', 1 subscriber' : `, ${membersCount} subscribers`;
-        }
 
         return (
-            <ListItem button classes={{ root: classes.listItem }} onClick={onClick}>
-                <div
-                    className={classNames('found-public-chat', {
-                        [classes.listItemSelected]: chatId === selectedChatId,
-                        'accent-background': chatId === selectedChatId
-                    })}
-                    onClick={this.handleClick}>
-                    <ChatTileControl chatId={chatId} />
-                    <div className='dialog-inner-wrapper'>
-                        <div className='tile-first-row'>
-                            <DialogTitleControl chatId={chatId} />
-                        </div>
-                        <div className='tile-second-row'>
-                            <div className={classNames('dialog-content', classes.foundPublicChatSubtitle)}>
-                                @{username}
-                                {subscribersString}
-                            </div>
-                        </div>
-                    </div>
+            <ListItem
+                button
+                className={classNames('found-public-chat', { 'item-selected': chatId === selectedChatId })}
+                onClick={onClick}>
+                <div className='found-public-chat-wrapper'>
+                    <Chat chatId={chatId} subtitle={username ? '@' + username : null} />
                 </div>
             </ListItem>
         );
@@ -122,4 +79,4 @@ FoundPublicChat.propTypes = {
     onClick: PropTypes.func
 };
 
-export default withStyles(styles, { withTheme: true })(FoundPublicChat);
+export default FoundPublicChat;

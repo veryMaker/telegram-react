@@ -11,12 +11,15 @@ import { getProfilePhoto } from './User';
 import { getLocationId } from './Message';
 import {
     FILE_PRIORITY,
+    IV_LOCATION_HEIGHT,
+    IV_LOCATION_WIDTH,
+    IV_PHOTO_SIZE,
     LOCATION_HEIGHT,
     LOCATION_SCALE,
     LOCATION_WIDTH,
     LOCATION_ZOOM,
     PHOTO_BIG_SIZE,
-    PHOTO_SIZE,
+    PHOTO_SIZE, PHOTO_THUMBNAIL_SIZE,
     PRELOAD_ANIMATION_SIZE,
     PRELOAD_AUDIO_SIZE,
     PRELOAD_DOCUMENT_SIZE,
@@ -31,6 +34,33 @@ import FileStore from '../Stores/FileStore';
 import MessageStore from '../Stores/MessageStore';
 import UserStore from '../Stores/UserStore';
 import TdLibController from '../Controllers/TdLibController';
+
+export function supportsStreaming() {
+    const { streaming } = TdLibController;
+
+    return streaming && hasServiceWorker();
+}
+
+export function hasServiceWorker() {
+    if ('serviceWorker' in navigator) {
+        const { controller } = navigator.serviceWorker;
+        if (!controller) console.log('[SW] no running SW');
+
+        return !!controller;
+    }
+
+    return false;
+}
+
+export async function getArrayBuffer(blob) {
+    return new Promise((resolve) => {
+        let fr = new FileReader();
+        fr.onload = () => {
+            resolve(fr.result);
+        };
+        fr.readAsArrayBuffer(blob);
+    })
+}
 
 function getSizeString(size) {
     if (!size) return `0 B`;
@@ -51,10 +81,10 @@ function getSizeString(size) {
 }
 
 function getFileSize(file) {
-    if (!file) return null;
+    if (!file) return '';
 
     let size = file.size;
-    if (!size) return null;
+    if (!size) return '';
 
     return getSizeString(size);
 }
@@ -129,35 +159,51 @@ async function loadReplies(store, chatId, messageIds) {
     if (!messageIds) return;
     if (!messageIds.length) return;
 
-    const result = await TdLibController.send({
-        '@type': 'getMessages',
-        chat_id: chatId,
-        message_ids: messageIds
-    });
+    let messages = [];
+    const ids = [];
+    for (let i = 0; i < messageIds.length; i++) {
+        const reply = MessageStore.get(chatId, messageIds[i]);
+        if (reply) {
+            messages.push(reply)
+        } else {
+            ids.push(messageIds[i]);
+        }
+    }
 
-    result.messages = result.messages.map((message, i) => {
-        return (
-            message || {
-                '@type': 'deletedMessage',
-                chat_id: chatId,
-                id: messageIds[i],
-                content: null
-            }
-        );
-    });
+    if (ids.length > 0) {
+        const result = await TdLibController.send({
+            '@type': 'getMessages',
+            chat_id: chatId,
+            message_ids: messageIds
+        });
 
-    MessageStore.setItems(result.messages);
+        result.messages = result.messages.map((message, i) => {
+            return (
+                message || {
+                    '@type': 'deletedMessage',
+                    chat_id: chatId,
+                    id: messageIds[i],
+                    sender: { },
+                    content: null
+                }
+            );
+        });
 
-    for (let i = messageIds.length - 1; i >= 0; i--) {
-        MessageStore.emit('getMessageResult', MessageStore.get(chatId, messageIds[i]));
+        messages = messages.concat(result.messages);
+    }
+
+    MessageStore.setItems(messages);
+
+    for (let i = ids.length - 1; i >= 0; i--) {
+        MessageStore.emit('getMessageResult', MessageStore.get(chatId, ids[i]));
     }
 
     store = FileStore.getStore();
 
-    loadReplyContents(store, result.messages);
+    loadReplyContents(store, messages);
 }
 
-function loadReplyContents(store, messages) {
+export function loadReplyContents(store, messages) {
     for (let i = messages.length - 1; i >= 0; i--) {
         const message = messages[i];
         if (!message) {
@@ -182,7 +228,7 @@ function loadReplyContents(store, messages) {
                 case 'messageChatChangePhoto': {
                     const { photo } = content;
 
-                    loadPhotoContent(store, photo, message);
+                    loadPhotoContent(store, photo, message, PHOTO_THUMBNAIL_SIZE);
                     break;
                 }
                 case 'messageDocument': {
@@ -200,7 +246,7 @@ function loadReplyContents(store, messages) {
                 case 'messagePhoto': {
                     const { photo } = content;
 
-                    loadPhotoContent(store, photo, message);
+                    loadPhotoContent(store, photo, message, PHOTO_THUMBNAIL_SIZE);
                     break;
                 }
                 case 'messageSticker': {
@@ -216,7 +262,7 @@ function loadReplyContents(store, messages) {
                     const { animation, audio, document, photo, sticker, video, video_note } = web_page;
 
                     if (photo) {
-                        loadPhotoContent(store, photo, message);
+                        loadPhotoContent(store, photo, message, PHOTO_THUMBNAIL_SIZE);
                         break;
                     }
 
@@ -271,7 +317,6 @@ function loadReplyContents(store, messages) {
 
 function loadAudioContent(store, audio, message, useFileSize = true) {
     if (!audio) return;
-    if (!message) return;
 
     let { audio: file } = audio;
     if (!file) return;
@@ -282,14 +327,17 @@ function loadAudioContent(store, audio, message, useFileSize = true) {
     const blob = FileStore.getBlob(id);
     if (blob) return;
 
+    const chatId = message ? message.chat_id : 0;
+    const messageId = message ? message.id : 0;
+
     FileStore.getLocalFile(
         store,
         file,
         null,
-        () => FileStore.updateAudioBlob(message.chat_id, message.id, id),
+        () => FileStore.updateAudioBlob(chatId, messageId, id),
         () => {
             if (!useFileSize || (size && size < PRELOAD_AUDIO_SIZE)) {
-                FileStore.getRemoteFile(id, FILE_PRIORITY, message);
+                FileStore.getRemoteFile(id, FILE_PRIORITY, message || audio);
             }
         }
     );
@@ -297,12 +345,11 @@ function loadAudioContent(store, audio, message, useFileSize = true) {
 
 function loadAudioThumbnailContent(store, audio, message) {
     if (!audio) return false;
-    if (!message) return false;
 
-    const { album_cover_thumbnail: photoSize } = audio;
-    if (!photoSize) return false;
+    const { album_cover_thumbnail: thumbnail } = audio;
+    if (!thumbnail) return false;
 
-    let { photo: file } = photoSize;
+    let { file } = thumbnail;
     if (!file) return false;
 
     file = FileStore.get(file.id) || file;
@@ -311,20 +358,34 @@ function loadAudioThumbnailContent(store, audio, message) {
     const blob = FileStore.getBlob(file.id);
     if (blob) return true;
 
+    const chatId = message ? message.chat_id : 0;
+    const messageId = message ? message.id : 0;
+
     FileStore.getLocalFile(
         store,
         file,
         null,
-        () => FileStore.updateAudioThumbnailBlob(message.chat_id, message.id, id),
-        () => FileStore.getRemoteFile(id, THUMBNAIL_PRIORITY, message)
+        () => FileStore.updateAudioThumbnailBlob(chatId, messageId, id),
+        () => FileStore.getRemoteFile(id, THUMBNAIL_PRIORITY, message || audio)
     );
 
     return true;
 }
 
-function loadAnimationContent(store, animation, message, useFileSize = true) {
+function cancelLoadAnimationContent(animation) {
+    const { animation: file } = animation;
+    if (!file) return;
+
+    const { id } = file;
+
+    const blob = file.blob || FileStore.getBlob(id);
+    if (blob) return;
+
+    FileStore.cancelGetRemoteFile(id);
+}
+
+export function loadAnimationContent(store, animation, message, useFileSize = true) {
     if (!animation) return;
-    if (!message) return;
 
     let { animation: file } = animation;
     if (!file) return;
@@ -335,27 +396,47 @@ function loadAnimationContent(store, animation, message, useFileSize = true) {
     const blob = FileStore.getBlob(id);
     if (blob) return;
 
+    const chatId = message ? message.chat_id : 0;
+    const messageId = message ? message.id : 0;
+
     FileStore.getLocalFile(
         store,
         file,
         null,
-        () => FileStore.updateAnimationBlob(message.chat_id, message.id, id),
+        () => FileStore.updateAnimationBlob(chatId, messageId, id),
         () => {
             if (!useFileSize || (size && size < PRELOAD_ANIMATION_SIZE)) {
-                FileStore.getRemoteFile(id, FILE_PRIORITY, message);
+                FileStore.getRemoteFile(id, FILE_PRIORITY, message || animation);
             }
         }
     );
 }
 
-function loadAnimationThumbnailContent(store, animation, message) {
+function cancelLoadAnimationThumbnailContent(animation){
+    if (!animation) return;
+
+    const { thumbnail } = animation;
+    if (!thumbnail) return;
+
+    let { file } = thumbnail;
+    if (!file) return;
+
+    file = FileStore.get(file.id) || file;
+    const { id } = file;
+
+    const blob = FileStore.getBlob(id);
+    if (blob) return;
+
+    FileStore.cancelGetRemoteFile(id);
+}
+
+export function loadAnimationThumbnailContent(store, animation, message) {
     if (!animation) return false;
-    if (!message) return false;
 
-    const { thumbnail: photoSize } = animation;
-    if (!photoSize) return false;
+    const { thumbnail } = animation;
+    if (!thumbnail) return false;
 
-    let { photo: file } = photoSize;
+    let { file } = thumbnail;
     if (!file) return false;
 
     file = FileStore.get(file.id) || file;
@@ -364,12 +445,15 @@ function loadAnimationThumbnailContent(store, animation, message) {
     const blob = FileStore.getBlob(file.id);
     if (blob) return true;
 
+    const chatId = message ? message.chat_id : 0;
+    const messageId = message ? message.id : 0;
+
     FileStore.getLocalFile(
         store,
         file,
         null,
-        () => FileStore.updateAnimationThumbnailBlob(message.chat_id, message.id, id),
-        () => FileStore.getRemoteFile(id, THUMBNAIL_PRIORITY, message)
+        () => FileStore.updateAnimationThumbnailBlob(chatId, messageId, id),
+        () => FileStore.getRemoteFile(id, THUMBNAIL_PRIORITY, message || animation)
     );
 
     return true;
@@ -388,7 +472,6 @@ function loadContactContent(store, contact, message) {
 
 function loadDocumentContent(store, document, message, useFileSize = true) {
     if (!document) return;
-    if (!message) return;
 
     let { document: file } = document;
     if (!file) return;
@@ -399,14 +482,17 @@ function loadDocumentContent(store, document, message, useFileSize = true) {
     const blob = FileStore.getBlob(id);
     if (blob) return;
 
+    const chatId = message ? message.chat_id : 0;
+    const messageId = message ? message.id : 0;
+
     FileStore.getLocalFile(
         store,
         file,
         null,
-        () => FileStore.updateDocumentBlob(message.chat_id, message.id, id),
+        () => FileStore.updateDocumentBlob(chatId, messageId, id),
         () => {
             if (!useFileSize || (size && size < PRELOAD_DOCUMENT_SIZE)) {
-                FileStore.getRemoteFile(id, FILE_PRIORITY, message);
+                FileStore.getRemoteFile(id, FILE_PRIORITY, message || document);
             }
         }
     );
@@ -414,12 +500,11 @@ function loadDocumentContent(store, document, message, useFileSize = true) {
 
 function loadDocumentThumbnailContent(store, document, message) {
     if (!document) return false;
-    if (!message) return false;
 
-    const { thumbnail: photoSize } = document;
-    if (!photoSize) return false;
+    const { thumbnail } = document;
+    if (!thumbnail) return false;
 
-    let { photo: file } = photoSize;
+    let { file } = thumbnail;
     if (!file) return false;
 
     file = FileStore.get(file.id) || file;
@@ -428,12 +513,15 @@ function loadDocumentThumbnailContent(store, document, message) {
     const blob = FileStore.getBlob(file.id);
     if (blob) return true;
 
+    const chatId = message ? message.chat_id : 0;
+    const messageId = message ? message.id : 0;
+
     FileStore.getLocalFile(
         store,
         file,
         null,
-        () => FileStore.updateDocumentThumbnailBlob(message.chat_id, message.id, id),
-        () => FileStore.getRemoteFile(id, THUMBNAIL_PRIORITY, message)
+        () => FileStore.updateDocumentThumbnailBlob(chatId, messageId, id),
+        () => FileStore.getRemoteFile(id, THUMBNAIL_PRIORITY, message || document)
     );
 
     return true;
@@ -441,7 +529,6 @@ function loadDocumentThumbnailContent(store, document, message) {
 
 function loadGameContent(store, game, message, useFileSize = true) {
     if (!game) return;
-    if (!message) return;
 
     const { animation } = game;
 
@@ -450,7 +537,6 @@ function loadGameContent(store, game, message, useFileSize = true) {
 
 function loadGameThumbnailContent(store, game, message) {
     if (!game) return false;
-    if (!message) return false;
 
     const { photo, animation } = game;
     if (loadAnimationThumbnailContent(store, animation, message)) {
@@ -461,23 +547,23 @@ function loadGameThumbnailContent(store, game, message) {
     return true;
 }
 
-async function loadLocationContent(store, location, message) {
-    if (!location) return;
-    if (!message) return;
+async function loadPageBlockMapContent(store, pageBlockMap, message) {
+    if (!pageBlockMap) return;
 
-    const locationId = getLocationId(location);
+    const { location } = pageBlockMap;
+    const locationId = getLocationId(location, IV_LOCATION_WIDTH, IV_LOCATION_HEIGHT);
     if (!locationId) return;
 
     let file = FileStore.getLocationFile(locationId);
     if (!file) {
         file = await TdLibController.send({
             '@type': 'getMapThumbnailFile',
-            location: location,
+            location,
+            width: IV_LOCATION_WIDTH,
+            height: IV_LOCATION_HEIGHT,
             zoom: LOCATION_ZOOM,
-            width: LOCATION_WIDTH,
-            height: LOCATION_HEIGHT,
             scale: LOCATION_SCALE,
-            chat_id: message.chat_id
+            chat_id: message ? message.chat_id : 0
         });
         FileStore.setLocationFile(locationId, file);
 
@@ -490,18 +576,60 @@ async function loadLocationContent(store, location, message) {
     const blob = FileStore.getBlob(file.id);
     if (blob) return;
 
+    const chatId = message ? message.chat_id : 0;
+    const messageId = message ? message.id : 0;
+
     FileStore.getLocalFile(
         store,
         file,
         null,
-        () => FileStore.updateLocationBlob(message.chat_id, message.id, id),
-        () => FileStore.getRemoteFile(id, FILE_PRIORITY, message)
+        () => FileStore.updateLocationBlob(chatId, messageId, id),
+        () => FileStore.getRemoteFile(id, FILE_PRIORITY, message || pageBlockMap)
     );
 }
 
-function loadBigPhotoContent(store, photo, message) {
+async function loadLocationContent(store, location, message) {
+    if (!location) return;
+
+    const locationId = getLocationId(location);
+    if (!locationId) return;
+
+    let file = FileStore.getLocationFile(locationId);
+    if (!file) {
+        file = await TdLibController.send({
+            '@type': 'getMapThumbnailFile',
+            location,
+            width: LOCATION_WIDTH,
+            height: LOCATION_HEIGHT,
+            zoom: LOCATION_ZOOM,
+            scale: LOCATION_SCALE,
+            chat_id: message ? message.chat_id : 0
+        });
+        FileStore.setLocationFile(locationId, file);
+
+        store = FileStore.getStore();
+    }
+
+    file = FileStore.get(file.id) || file;
+    const { id } = file;
+
+    const blob = FileStore.getBlob(file.id);
+    if (blob) return;
+
+    const chatId = message ? message.chat_id : 0;
+    const messageId = message ? message.id : 0;
+
+    FileStore.getLocalFile(
+        store,
+        file,
+        null,
+        () => FileStore.updateLocationBlob(chatId, messageId, id),
+        () => FileStore.getRemoteFile(id, FILE_PRIORITY, message || location)
+    );
+}
+
+function cancelLoadBigPhotoContent(photo) {
     if (!photo) return;
-    if (!message) return;
 
     const { sizes } = photo;
     if (!sizes) return;
@@ -518,23 +646,16 @@ function loadBigPhotoContent(store, photo, message) {
     const blob = FileStore.getBlob(id);
     if (blob) return;
 
-    FileStore.getLocalFile(
-        store,
-        file,
-        null,
-        () => FileStore.updatePhotoBlob(message.chat_id, message.id, id),
-        () => FileStore.getRemoteFile(id, FILE_PRIORITY, message)
-    );
+    FileStore.cancelGetRemoteFile(id);
 }
 
-function loadPhotoContent(store, photo, message) {
+function loadBigPhotoContent(store, photo, message) {
     if (!photo) return;
-    if (!message) return;
 
     const { sizes } = photo;
     if (!sizes) return;
 
-    const photoSize = getPhotoSize(sizes);
+    const photoSize = getSize(sizes, PHOTO_BIG_SIZE);
     if (!photoSize) return;
 
     let { photo: file } = photoSize;
@@ -546,12 +667,45 @@ function loadPhotoContent(store, photo, message) {
     const blob = FileStore.getBlob(id);
     if (blob) return;
 
+    const chatId = message ? message.chat_id : 0;
+    const messageId = message ? message.id : 0;
+
     FileStore.getLocalFile(
         store,
         file,
         null,
-        () => FileStore.updatePhotoBlob(message.chat_id, message.id, id),
-        () => FileStore.getRemoteFile(id, FILE_PRIORITY, message)
+        () => FileStore.updatePhotoBlob(chatId, messageId, id),
+        () => FileStore.getRemoteFile(id, FILE_PRIORITY, message || photo)
+    );
+}
+
+function loadPhotoContent(store, photo, message, displaySize = PHOTO_SIZE) {
+    if (!photo) return;
+
+    const { sizes } = photo;
+    if (!sizes) return;
+
+    const photoSize = getPhotoSize(sizes, displaySize);
+    if (!photoSize) return;
+
+    let { photo: file } = photoSize;
+    if (!file) return;
+
+    file = FileStore.get(file.id) || file;
+    const { id } = file;
+
+    const blob = FileStore.getBlob(id);
+    if (blob) return;
+
+    const chatId = message ? message.chat_id : 0;
+    const messageId = message ? message.id : 0;
+
+    FileStore.getLocalFile(
+        store,
+        file,
+        null,
+        () => FileStore.updatePhotoBlob(chatId, messageId, id),
+        () => FileStore.getRemoteFile(id, FILE_PRIORITY, message || photo)
     );
 }
 
@@ -559,10 +713,13 @@ function loadPhotoThumbnailContent(store, photo, message) {
     if (!photo) return false;
     if (!message) return false;
 
-    const photoSize = getPhotoThumbnailSize(photo.sizes);
-    if (!photoSize) return false;
+    const thumbSize = getPhotoThumbnailSize(photo.sizes);
+    if (!thumbSize) return false;
 
-    let { photo: file } = photoSize;
+    const photoSize = getPhotoSize(photo.sizes);
+    if (photoSize === thumbSize) return;
+
+    let { photo: file } = thumbSize;
     if (!file) return false;
 
     file = FileStore.get(file.id) || file;
@@ -583,6 +740,7 @@ function loadPhotoThumbnailContent(store, photo, message) {
 }
 
 function loadStickerContent(store, sticker, message, useFileSize = true) {
+    // console.log('[sp] loadStickerContent')
     if (!sticker) return;
 
     let { sticker: file } = sticker;
@@ -601,7 +759,7 @@ function loadStickerContent(store, sticker, message, useFileSize = true) {
         store,
         file,
         null,
-        () => FileStore.updateStickerBlob(chatId, messageId, id),
+        () => FileStore.updateStickerBlob(chatId, messageId, id, sticker),
         () => {
             if (!useFileSize || (size && size < PRELOAD_STICKER_SIZE)) {
                 FileStore.getRemoteFile(id, FILE_PRIORITY, message || sticker);
@@ -613,10 +771,10 @@ function loadStickerContent(store, sticker, message, useFileSize = true) {
 function loadStickerThumbnailContent(store, sticker, message) {
     if (!sticker) return false;
 
-    const { thumbnail: photoSize } = sticker;
-    if (!photoSize) return false;
+    const { thumbnail } = sticker;
+    if (!thumbnail) return false;
 
-    let { photo: file } = photoSize;
+    let { file } = thumbnail;
     if (!file) return false;
 
     file = FileStore.get(file.id) || file;
@@ -632,18 +790,32 @@ function loadStickerThumbnailContent(store, sticker, message) {
         store,
         file,
         null,
-        () => FileStore.updateStickerThumbnailBlob(chatId, messageId, id),
+        () => FileStore.updateStickerThumbnailBlob(chatId, messageId, id, sticker),
         () => FileStore.getRemoteFile(id, THUMBNAIL_PRIORITY, message || sticker)
     );
 
     return true;
 }
 
-function loadVideoContent(store, video, message, useFileSize = true) {
+function cancelLoadVideoContent(video) {
     if (!video) return;
-    if (!message) return;
 
     let { video: file } = video;
+    if (!file) return;
+
+    file = FileStore.get(file.id) || file;
+    const { id } = file;
+
+    const blob = FileStore.getBlob(id);
+    if (blob) return;
+
+    FileStore.cancelGetRemoteFile(id);
+}
+
+function loadVideoContent(store, video, message, useFileSize = true) {
+    if (!video) return;
+
+    let { video: file, supports_streaming } = video;
     if (!file) return;
 
     file = FileStore.get(file.id) || file;
@@ -652,27 +824,33 @@ function loadVideoContent(store, video, message, useFileSize = true) {
     const blob = FileStore.getBlob(id);
     if (blob) return;
 
+    if (supports_streaming && supportsStreaming()) {
+        return;
+    }
+
+    const chatId = message ? message.chat_id : 0;
+    const messageId = message ? message.id : 0;
+
     FileStore.getLocalFile(
         store,
         file,
         null,
-        () => FileStore.updateVideoBlob(message.chat_id, message.id, id),
+        () => FileStore.updateVideoBlob(chatId, messageId, id),
         () => {
             if (!useFileSize || (size && size < PRELOAD_VIDEO_SIZE)) {
-                FileStore.getRemoteFile(id, FILE_PRIORITY, message);
+                FileStore.getRemoteFile(id, FILE_PRIORITY, message || video);
             }
         }
     );
 }
 
-function loadVideoThumbnailContent(store, video, message) {
-    if (!video) return false;
-    if (!message) return false;
+function cancelLoadVideoThumbnailContent(video) {
+    if (!video) return;
 
-    const { thumbnail: photoSize } = video;
-    if (!photoSize) return false;
+    const { thumbnail } = video;
+    if (!thumbnail) return false;
 
-    let { photo: file } = photoSize;
+    let { file } = thumbnail;
     if (!file) return false;
 
     file = FileStore.get(file.id) || file;
@@ -681,12 +859,33 @@ function loadVideoThumbnailContent(store, video, message) {
     const blob = FileStore.getBlob(id);
     if (blob) return true;
 
+    FileStore.cancelGetRemoteFile(id);
+}
+
+function loadVideoThumbnailContent(store, video, message) {
+    if (!video) return false;
+
+    const { thumbnail } = video;
+    if (!thumbnail) return false;
+
+    let { file } = thumbnail;
+    if (!file) return false;
+
+    file = FileStore.get(file.id) || file;
+    const { id } = file;
+
+    const blob = FileStore.getBlob(id);
+    if (blob) return true;
+
+    const chatId = message ? message.chat_id : 0;
+    const messageId = message ? message.id : 0;
+
     FileStore.getLocalFile(
         store,
         file,
         null,
-        () => FileStore.updateVideoThumbnailBlob(message.chat_id, message.id, id),
-        () => FileStore.getRemoteFile(id, THUMBNAIL_PRIORITY, message)
+        () => FileStore.updateVideoThumbnailBlob(chatId, messageId, id),
+        () => FileStore.getRemoteFile(id, THUMBNAIL_PRIORITY, message || video)
     );
 
     return true;
@@ -694,7 +893,6 @@ function loadVideoThumbnailContent(store, video, message) {
 
 function loadVideoNoteContent(store, videoNote, message, useFileSize = true) {
     if (!videoNote) return;
-    if (!message) return;
 
     let { video: file } = videoNote;
     if (!file) return;
@@ -705,14 +903,17 @@ function loadVideoNoteContent(store, videoNote, message, useFileSize = true) {
     const blob = FileStore.getBlob(id);
     if (blob) return;
 
+    const chatId = message ? message.chat_id : 0;
+    const messageId = message ? message.id : 0;
+
     FileStore.getLocalFile(
         store,
         file,
         null,
-        () => FileStore.updateVideoNoteBlob(message.chat_id, message.id, id),
+        () => FileStore.updateVideoNoteBlob(chatId, messageId, id),
         () => {
             if (!useFileSize || (size && size < PRELOAD_VIDEONOTE_SIZE)) {
-                FileStore.getRemoteFile(id, FILE_PRIORITY, message);
+                FileStore.getRemoteFile(id, FILE_PRIORITY, message || videoNote);
             }
         }
     );
@@ -720,12 +921,11 @@ function loadVideoNoteContent(store, videoNote, message, useFileSize = true) {
 
 function loadVideoNoteThumbnailContent(store, videoNote, message) {
     if (!videoNote) return false;
-    if (!message) return false;
 
-    const { thumbnail: photoSize } = videoNote;
-    if (!photoSize) return false;
+    const { thumbnail } = videoNote;
+    if (!thumbnail) return false;
 
-    let { photo: file } = photoSize;
+    let { file } = thumbnail;
     if (!file) return false;
 
     file = FileStore.get(file.id) || file;
@@ -734,12 +934,15 @@ function loadVideoNoteThumbnailContent(store, videoNote, message) {
     const blob = FileStore.getBlob(id);
     if (blob) return true;
 
+    const chatId = message ? message.chat_id : 0;
+    const messageId = message ? message.id : 0;
+
     FileStore.getLocalFile(
         store,
         file,
         null,
-        () => FileStore.updateVideoNoteThumbnailBlob(message.chat_id, message.id, id),
-        () => FileStore.getRemoteFile(id, THUMBNAIL_PRIORITY, message)
+        () => FileStore.updateVideoNoteThumbnailBlob(chatId, messageId, id),
+        () => FileStore.getRemoteFile(id, THUMBNAIL_PRIORITY, message || videoNote)
     );
 
     return true;
@@ -747,7 +950,6 @@ function loadVideoNoteThumbnailContent(store, videoNote, message) {
 
 function loadVoiceNoteContent(store, voiceNote, message, useFileSize = true) {
     if (!voiceNote) return;
-    if (!message) return;
 
     let { voice: file } = voiceNote;
     if (!file) return;
@@ -758,14 +960,17 @@ function loadVoiceNoteContent(store, voiceNote, message, useFileSize = true) {
     const blob = FileStore.getBlob(id);
     if (blob) return;
 
+    const chatId = message ? message.chat_id : 0;
+    const messageId = message ? message.id : 0;
+
     FileStore.getLocalFile(
         store,
         file,
         null,
-        () => FileStore.updateVoiceNoteBlob(message.chat_id, message.id, id),
+        () => FileStore.updateVoiceNoteBlob(chatId, messageId, id),
         () => {
             if (!useFileSize || (size && size < PRELOAD_VOICENOTE_SIZE)) {
-                FileStore.getRemoteFile(id, FILE_PRIORITY, message);
+                FileStore.getRemoteFile(id, FILE_PRIORITY, message || voiceNote);
             }
         }
     );
@@ -773,6 +978,7 @@ function loadVoiceNoteContent(store, voiceNote, message, useFileSize = true) {
 
 function loadMessageContents(store, messages) {
     const users = new Map();
+    const chats = new Map();
     let chatId = 0;
     const replies = new Map();
 
@@ -782,10 +988,29 @@ function loadMessageContents(store, messages) {
             continue;
         }
 
-        const { chat_id, content, sender_user_id, reply_to_message_id } = message;
+        const { chat_id, content, sender, reply_to_message_id, forward_info } = message;
 
-        if (sender_user_id) {
-            users.set(sender_user_id, sender_user_id);
+        if (sender.user_id) {
+            users.set(sender.user_id, sender.user_id);
+        } else if (sender.chat_id) {
+            chats.set(sender.chat_id, sender.chat_id);
+        }
+
+        if (forward_info) {
+            const { origin } = forward_info;
+            switch (origin['@type']) {
+                case 'messageForwardOriginChannel': {
+                    chats.set(origin.chat_id, origin.chat_id);
+                    break;
+                }
+                case 'messageForwardOriginHiddenUser': {
+                    break;
+                }
+                case 'messageForwardOriginUser': {
+                    users.set(origin.sender_user_id, origin.sender_user_id);
+                    break;
+                }
+            }
         }
 
         if (reply_to_message_id) {
@@ -813,6 +1038,7 @@ function loadMessageContents(store, messages) {
                     const { photo } = content;
 
                     loadPhotoContent(store, photo, message);
+                    loadBigPhotoContent(store, photo, message);
                     break;
                 }
                 case 'messageContact': {
@@ -833,6 +1059,14 @@ function loadMessageContents(store, messages) {
 
                     loadGameContent(store, game, message);
                     loadGameThumbnailContent(store, game, message);
+                    break;
+                }
+                case 'messageInvoice': {
+                    const { photo } = content;
+
+                    loadBigPhotoContent(store, photo, message);
+                    loadPhotoContent(store, photo, message);
+                    loadPhotoThumbnailContent(store, photo, message);
                     break;
                 }
                 case 'messageLocation': {
@@ -941,7 +1175,96 @@ function loadMessageContents(store, messages) {
     }
 
     loadUsersContent(store, [...users.keys()]);
+    loadChatsContent(store, [...chats.keys()]);
     loadReplies(store, chatId, [...replies.keys()]);
+}
+
+export function saveMedia(media, message) {
+    if (!media) return;
+
+    switch (media['@type']) {
+        case 'animation': {
+            saveAnimation(media, message);
+            break;
+        }
+        case 'document': {
+            saveDocument(media, message);
+            break;
+        }
+        case 'photo': {
+            savePhoto(media, message);
+            break;
+        }
+        case 'video': {
+            saveVideo(media, message);
+            break;
+        }
+    }
+}
+
+function saveAnimation(animation, message) {
+    const chatId = message ? message.chat_id : 0;
+    const messageId = message ? message.id : 0;
+
+    if (!animation) return;
+
+    const { animation: file, file_name } = animation;
+    if (!file) return;
+
+    const { id: fileId } = file;
+
+    saveOrDownload(file, file_name || fileId + '.mp4', message || animation, () =>
+        FileStore.updateAnimationBlob(chatId, messageId, fileId)
+    );
+}
+
+function saveDocument(document, message) {
+    const chatId = message ? message.chat_id : 0;
+    const messageId = message ? message.id : 0;
+
+    if (!document) return;
+
+    const { document: file, file_name } = document;
+    if (!file) return;
+
+    const { id: fileId } = file;
+
+    saveOrDownload(file, file_name || fileId, message || document, () =>
+        FileStore.updateDocumentBlob(chatId, messageId, fileId)
+    );
+}
+
+function saveVideo(video, message) {
+    const chatId = message ? message.chat_id : 0;
+    const messageId = message ? message.id : 0;
+
+    if (!video) return;
+
+    const { video: file, file_name } = video;
+    if (!file) return;
+
+    const { id: fileId } = file;
+
+    saveOrDownload(file, file_name || fileId + '.mp4', message || video, () =>
+        FileStore.updateVideoBlob(chatId, messageId, fileId)
+    );
+}
+
+function savePhoto(photo, message) {
+    const chatId = message ? message.chat_id : 0;
+    const messageId = message ? message.id : 0;
+
+    if (!photo) return;
+
+    const photoSize = getSize(photo.sizes, PHOTO_BIG_SIZE);
+    if (!photoSize) return;
+
+    const { photo: file } = photoSize;
+    if (!file) return;
+
+    const { id: fileId } = file;
+
+    saveOrDownload(file, fileId + '.jpg', message || photo, () => FileStore.updatePhotoBlob(chatId, messageId, fileId));
 }
 
 function saveOrDownload(file, fileName, obj, callback) {
@@ -994,7 +1317,65 @@ function download(file, obj, callback) {
     }
 }
 
-function getMediaPreviewFile(chatId, messageId) {
+export function getViewerMinithumbnail(media) {
+    if (!media) return null;
+
+    switch (media['@type']) {
+        case 'animation': {
+            return media.minithumbnail;
+        }
+        case 'document': {
+            return media.minithumbnail;
+        }
+        case 'photo': {
+            return media.minithumbnail;
+        }
+        case 'video': {
+            return media.minithumbnail;
+        }
+        case 'videoNote': {
+            return media.minithumbnail;
+        }
+        default: {
+            return null;
+        }
+    }
+}
+
+function getViewerThumbnail(media) {
+    if (!media) return null;
+
+    switch (media['@type']) {
+        case 'animation': {
+            return media.thumbnail;
+        }
+        case 'audio': {
+            return media.album_cover_thumbnail;
+        }
+        case 'document': {
+            return media.thumbnail;
+        }
+        case 'photo': {
+            const [width, height, file] = getViewerFile(media, PHOTO_SIZE);
+
+            return { '@type': 'thumbnail', format: { '@type': 'thumbnailFormatJpeg' }, file, width, height };
+        }
+        case 'sticker': {
+            return media.thumbnail;
+        }
+        case 'video': {
+            return media.thumbnail;
+        }
+        case 'videoNote': {
+            return media.thumbnail;
+        }
+        default: {
+            return null;
+        }
+    }
+}
+
+export function getMediaMinithumbnail(chatId, messageId) {
     const message = MessageStore.get(chatId, messageId);
     if (!message) return [0, 0, null];
 
@@ -1004,51 +1385,60 @@ function getMediaPreviewFile(chatId, messageId) {
     switch (content['@type']) {
         case 'messageAnimation': {
             const { animation } = content;
-            if (animation && animation.thumbnail) {
-                return [animation.thumbnail.width, animation.thumbnail.height, animation.thumbnail.photo];
+            if (animation && animation.minithumbnail) {
+                return [animation.minithumbnail.width, animation.minithumbnail.height, animation.minithumbnail];
             }
             break;
         }
         case 'messageChatChangePhoto': {
-            return getMediaFile(chatId, messageId, PHOTO_SIZE);
-        }
-        case 'messageDocument': {
-            const { document } = content;
-            if (document) {
-                return [50, 50, document.document];
+            const { photo } = content;
+            if (photo && photo.minithumbnail) {
+                return [photo.minithumbnail.width, photo.minithumbnail.height, photo.minithumbnail];
             }
             break;
         }
+        case 'messageDocument': {
+            const { document } = content;
+            if (document && document.minithumbnail) {
+                return [document.minithumbnail.width, document.minithumbnail.height, document.minithumbnail];
+            }
+            break;
+        }
+        case 'messageInvoice':
         case 'messagePhoto': {
-            return getMediaFile(chatId, messageId, PHOTO_SIZE);
+            const { photo } = content;
+            if (photo && photo.minithumbnail) {
+                return [photo.minithumbnail.width, photo.minithumbnail.height, photo.minithumbnail];
+            }
+            break;
         }
         case 'messageText': {
             const { web_page } = content;
             if (web_page) {
                 const { animation, document, video, photo } = web_page;
 
-                if (animation && animation.thumbnail) {
-                    return [animation.thumbnail.width, animation.thumbnail.height, animation.thumbnail.photo];
+                if (animation && animation.minithumbnail) {
+                    return [animation.minithumbnail.width, animation.minithumbnail.height, animation.minithumbnail];
                 }
 
-                if (document) {
-                    return [50, 50, document.document];
+                if (document && document.minithumbnail) {
+                    return [document.minithumbnail.width, document.minithumbnail.height, document.minithumbnail];
                 }
 
-                if (video && video.thumbnail) {
-                    return [video.thumbnail.width, video.thumbnail.height, video.thumbnail.photo];
+                if (video && video.minithumbnail) {
+                    return [video.minithumbnail.width, video.minithumbnail.height, video.minithumbnail];
                 }
 
-                if (photo) {
-                    return getMediaFile(chatId, messageId, PHOTO_SIZE);
+                if (photo && photo.minithumbnail) {
+                    return [photo.minithumbnail.width, photo.minithumbnail.height, photo.minithumbnail];
                 }
             }
             break;
         }
         case 'messageVideo': {
             const { video } = content;
-            if (video.thumbnail) {
-                return [video.thumbnail.width, video.thumbnail.height, video.thumbnail.photo];
+            if (video && video.minithumbnail) {
+                return [video.minithumbnail.width, video.minithumbnail.height, video.minithumbnail];
             }
             break;
         }
@@ -1060,19 +1450,120 @@ function getMediaPreviewFile(chatId, messageId) {
     return [0, 0, null];
 }
 
-function getMediaFile(chatId, messageId, size) {
-    if (!size) return [0, 0, null];
+export function getMediaThumbnail(chatId, messageId) {
     const message = MessageStore.get(chatId, messageId);
-    if (!message) return [0, 0, null];
+    if (!message) return null;
 
     const { content } = message;
-    if (!content) return [0, 0, null];
+    if (!content) return null;
+
+    switch (content['@type']) {
+        case 'messageAnimation': {
+            const { animation } = content;
+            if (animation && animation.thumbnail) {
+                return animation.thumbnail;
+            }
+            break;
+        }
+        case 'messageChatChangePhoto': {
+            const [width, height, file] = getMediaFile(chatId, messageId, PHOTO_SIZE);
+
+            return { '@type': 'thumbnail', format: 'thumbnailFormatJpeg', file, width, height };
+        }
+        case 'messageDocument': {
+            const { document } = content;
+            if (document.thumbnail) {
+                return document.thumbnail;
+            }
+            break;
+        }
+        case 'messageInvoice':
+        case 'messagePhoto': {
+            const [width, height, file] = getMediaFile(chatId, messageId, PHOTO_SIZE);
+
+            return { '@type': 'thumbnail', format: 'thumbnailFormatJpeg', file, width, height };
+        }
+        case 'messageText': {
+            const { web_page } = content;
+            if (web_page) {
+                const { animation, document, video, photo } = web_page;
+
+                if (animation && animation.thumbnail) {
+                    return animation.thumbnail;
+                }
+
+                if (document && document.thumbnail) {
+                    return document.thumbnail;
+                }
+
+                if (video && video.thumbnail) {
+                    return video.thumbnail;
+                }
+
+                if (photo) {
+                    const [width, height, file] = getMediaFile(chatId, messageId, PHOTO_SIZE);
+
+                    return { '@type': 'thumbnail', format: 'thumbnailFormatJpeg', file, width, height };
+                }
+            }
+            break;
+        }
+        case 'messageVideo': {
+            const { video } = content;
+            if (video && video.thumbnail) {
+                return video.thumbnail;
+            }
+            break;
+        }
+        default: {
+            return null;
+        }
+    }
+
+    return null;
+}
+
+function getViewerFile(media, size) {
+    if (!size) return [0, 0, null, '', false];
+
+    switch (media['@type']) {
+        case 'animation': {
+            return [media.width, media.height, media.animation, media.mime_type, false];
+        }
+        case 'photo': {
+            const photoSize = getSize(media.sizes, size);
+            if (photoSize) {
+                return [photoSize.width, photoSize.height, photoSize.photo, '', false];
+            }
+            break;
+        }
+        case 'document': {
+            return [50, 50, document.document, document.mime_type, false];
+        }
+        case 'video': {
+            return [media.width, media.height, media.video, media.mime_type, media.supports_streaming && supportsStreaming()];
+        }
+        default: {
+        }
+    }
+
+    return [0, 0, null, '', false];
+}
+
+function getMediaFile(chatId, messageId, size) {
+    if (!size) return [0, 0, null, '', false];
+    const message = MessageStore.get(chatId, messageId);
+    if (!message) return [0, 0, null, '', false];
+
+    const { content } = message;
+    if (!content) return [0, 0, null, '', false];
 
     switch (content['@type']) {
         case 'messageAnimation': {
             const { animation } = content;
             if (animation) {
-                return [animation.width, animation.height, animation.animation];
+                const { width, height, animation: file, mime_type } = animation;
+                return [width, height, file, mime_type, false];
             }
             break;
         }
@@ -1081,7 +1572,8 @@ function getMediaFile(chatId, messageId, size) {
             if (photo) {
                 const photoSize = getSize(photo.sizes, size);
                 if (photoSize) {
-                    return [photoSize.width, photoSize.height, photoSize.photo];
+                    const { width, height, photo: file } = photoSize;
+                    return [width, height, file, '', false];
                 }
             }
             break;
@@ -1089,16 +1581,19 @@ function getMediaFile(chatId, messageId, size) {
         case 'messageDocument': {
             const { document } = content;
             if (document) {
-                return [50, 50, document.document];
+                const { document: file, mime_type } = document;
+                return [50, 50, file, mime_type, false];
             }
             break;
         }
+        case 'messageInvoice':
         case 'messagePhoto': {
             const { photo } = content;
             if (photo) {
                 const photoSize = getSize(photo.sizes, size);
                 if (photoSize) {
-                    return [photoSize.width, photoSize.height, photoSize.photo];
+                    const { width, height, photo: file } = photoSize;
+                    return [width, height, file, '', false];
                 }
             }
             break;
@@ -1108,23 +1603,27 @@ function getMediaFile(chatId, messageId, size) {
             if (web_page) {
                 const { animation, document, photo, video } = web_page;
                 if (animation) {
-                    return [animation.width, animation.height, animation.animation];
+                    const { width, height, animation: file, mime_type } = animation;
+                    return [width, height, file, mime_type, false];
                 }
 
                 if (document) {
-                    return [50, 50, document.document];
+                    const { document: file, mime_type } = document;
+                    return [50, 50, file, mime_type, false];
+                }
+
+                if (video) {
+                    const { width, height, video: file, mime_type, supports_streaming } = video;
+                    return [width, height, file, mime_type, supports_streaming && supportsStreaming()];
                 }
 
                 if (photo) {
                     const photoSize = getSize(photo.sizes, size);
                     if (photoSize) {
-                        return [photoSize.width, photoSize.height, photoSize.photo];
+                        const { width, height, photo: file } = photoSize;
+                        return [width, height, file, '', false];
                     }
                     break;
-                }
-
-                if (video) {
-                    return [video.width, video.height, video.video];
                 }
             }
             break;
@@ -1132,7 +1631,8 @@ function getMediaFile(chatId, messageId, size) {
         case 'messageVideo': {
             const { video } = content;
             if (video) {
-                return [video.width, video.height, video.video];
+                const { width, height, video: file, mime_type, supports_streaming } = video;
+                return [width, height, file, mime_type, supports_streaming && supportsStreaming()];
             }
             break;
         }
@@ -1140,7 +1640,43 @@ function getMediaFile(chatId, messageId, size) {
         }
     }
 
-    return [0, 0, null];
+    return [0, 0, null, '', false];
+}
+
+export function cancelLoadIVMediaViewerContent(blocks) {
+    if (!blocks) return;
+    if (!blocks.length) return;
+
+    for (let i = 0; i < blocks.length; i++) {
+        const content = blocks[i];
+        if (content) {
+            switch (content['@type']) {
+                case 'pageBlockAnimation': {
+                    const { animation } = content;
+                    if (!animation) break;
+
+                    cancelLoadAnimationThumbnailContent(animation);
+                    cancelLoadAnimationContent(animation);
+                    break;
+                }
+                case 'pageBlockPhoto': {
+                    const { photo } = content;
+                    if (!photo) break;
+
+                    cancelLoadBigPhotoContent(photo);
+                    break;
+                }
+                case 'pageBlockVideo': {
+                    const { video } = content;
+                    if (!video) break;
+
+                    cancelLoadVideoThumbnailContent(video);
+                    cancelLoadVideoContent(video);
+                    break;
+                }
+            }
+        }
+    }
 }
 
 function cancelLoadMediaViewerContent(messages) {
@@ -1152,79 +1688,91 @@ function cancelLoadMediaViewerContent(messages) {
         const { content } = message;
         if (content) {
             switch (content['@type']) {
+                case 'messageAnimation': {
+                    const { animation } = content;
+                    if (!animation) break;
+
+                    cancelLoadAnimationThumbnailContent(animation);
+                    cancelLoadAnimationContent(animation);
+                    break;
+                }
+                case 'messageInvoice': {
+                    const { photo } = content;
+                    if (!photo) break;
+
+                    cancelLoadBigPhotoContent(photo);
+                    break;
+                }
                 case 'messagePhoto': {
                     const { photo } = content;
                     if (!photo) break;
 
-                    // preview
-                    /*let [previewId, previewPid, previewIdbKey] = getPhotoPreviewFile(message);
-                    if (previewPid) {
-                        let preview = this.getPreviewPhotoSize(message.content.photo.sizes);
-                        if (!preview.blob){
-                            FileStore.getLocalFile(store, preview, null,
-                                () => MessageStore.updateMessagePhoto(message.id),
-                                () => { if (loadRemote)  FileStore.getRemoteFile(previewId, 2, message); },
-                                'load_contents_preview_',
-                                message.id);
-
-                        }
-                    }*/
-
-                    const photoSize = getSize(photo.sizes, PHOTO_BIG_SIZE);
-                    if (!photoSize) break;
-
-                    const { photo: file } = photoSize;
-                    const blob = file.blob || FileStore.getBlob(file.id);
-                    if (blob) return;
-
-                    FileStore.cancelGetRemoteFile(file.id);
+                    cancelLoadBigPhotoContent(photo);
                     break;
                 }
                 case 'messageVideo': {
                     const { video } = content;
                     if (!video) break;
 
-                    if (video.thumbnail) {
-                        const { photo: file } = video.thumbnail;
-                        const blob = file.blob || FileStore.getBlob(file.id);
-                        if (blob) break;
-
-                        FileStore.cancelGetRemoteFile(file.id);
-                    }
-
-                    const { video: file } = video;
-                    if (!file) break;
-
-                    const blob = file.blob || FileStore.getBlob(file.id);
-                    if (blob) break;
-
-                    FileStore.cancelGetRemoteFile(file.id);
+                    cancelLoadVideoThumbnailContent(video);
+                    cancelLoadVideoContent(video);
                     break;
                 }
                 case 'messageText': {
                     const { web_page } = message.content;
                     if (web_page) {
-                        const { video } = web_page;
+                        const { animation, photo, video } = web_page;
+
+                        if (animation) {
+                            cancelLoadAnimationThumbnailContent(animation);
+                            cancelLoadAnimationContent(animation);
+                        }
+
+                        if (photo) {
+                            cancelLoadBigPhotoContent(photo);
+                        }
 
                         if (video) {
-                            if (video.thumbnail) {
-                                const { photo: file } = video.thumbnail;
-                                const blob = file.blob || FileStore.getBlob(file.id);
-                                if (blob) break;
-
-                                FileStore.cancelGetRemoteFile(file.id);
-                            }
-
-                            const { video: file } = video;
-                            if (!file) break;
-
-                            const blob = file.blob || FileStore.getBlob(file.id);
-                            if (blob) break;
-
-                            FileStore.cancelGetRemoteFile(file.id);
+                            cancelLoadVideoThumbnailContent(video);
+                            cancelLoadVideoContent(video);
                         }
                     }
 
+                    break;
+                }
+            }
+        }
+    }
+}
+
+export function loadIVMediaViewerContent(blocks, useSizeLimit = false) {
+    if (!blocks) return;
+    if (!blocks.length) return;
+
+    const store = FileStore.getStore();
+
+    for (let i = 0; i < blocks.length; i++) {
+        const content = blocks[i];
+        if (content) {
+            switch (content['@type']) {
+                case 'pageBlockAnimation': {
+                    const { animation } = content;
+
+                    loadAnimationContent(store, animation, null, useSizeLimit);
+                    loadAnimationThumbnailContent(store, animation, null);
+                    break;
+                }
+                case 'pageBlockPhoto': {
+                    const { photo } = content;
+
+                    loadBigPhotoContent(store, photo, null);
+                    break;
+                }
+                case 'pageBlockVideo': {
+                    const { video } = content;
+
+                    loadVideoThumbnailContent(store, video, null);
+                    loadVideoContent(store, video, null, useSizeLimit);
                     break;
                 }
             }
@@ -1260,6 +1808,12 @@ function loadMediaViewerContent(messages, useSizeLimit = false) {
                     const { document } = content;
 
                     loadDocumentContent(store, document, message, useSizeLimit);
+                    break;
+                }
+                case 'messageInvoice': {
+                    const { photo } = content;
+
+                    loadBigPhotoContent(store, photo, message);
                     break;
                 }
                 case 'messagePhoto': {
@@ -1310,6 +1864,21 @@ function loadMediaViewerContent(messages, useSizeLimit = false) {
     }
 }
 
+export function cancelPreloadIVMediaViewerContent(index, blocks) {
+    if (!blocks.length) return;
+
+    const preload = [];
+    if (index > 0) {
+        preload.push(blocks[index - 1]);
+    }
+    if (index < blocks.length - 1) {
+        preload.push(blocks[index + 1]);
+    }
+
+    cancelLoadIVMediaViewerContent([blocks[index]]);
+    cancelLoadIVMediaViewerContent(blocks);
+}
+
 function cancelPreloadMediaViewerContent(index, history) {
     if (!history.length) return;
 
@@ -1338,6 +1907,21 @@ function preloadMediaViewerContent(index, history) {
 
     loadMediaViewerContent([history[index]], false);
     loadMediaViewerContent(messages, true);
+}
+
+export function preloadIVMediaViewerContent(index, blocks) {
+    if (!blocks.length) return;
+
+    const preload = [];
+    if (index > 0) {
+        preload.push(blocks[index - 1]);
+    }
+    if (index < blocks.length - 1) {
+        preload.push(blocks[index + 1]);
+    }
+
+    loadIVMediaViewerContent([blocks[index]], false);
+    loadIVMediaViewerContent(preload, true);
 }
 
 function loadUserFileContent(store, file, userId) {
@@ -1370,6 +1954,9 @@ function loadChatFileContent(store, file, chatId) {
     const chat = ChatStore.get(chatId);
     if (!chat) return;
 
+    const dataUrl = FileStore.getDataUrl(id);
+    if (dataUrl) return;
+
     const blob = file.blob || FileStore.getBlob(id);
     if (blob) return;
 
@@ -1390,13 +1977,9 @@ function loadProfileMediaViewerContent(chatId, photos) {
     photos.forEach(photo => {
         switch (photo['@type']) {
             case 'chatPhoto': {
-                const { small, big } = photo;
+                photo = getProfilePhoto(photo);
+                if (!photo) break;
 
-                loadChatFileContent(store, small, chatId);
-                loadChatFileContent(store, big, chatId);
-                break;
-            }
-            case 'profilePhoto': {
                 const userId = getChatUserId(chatId);
 
                 const { small, big } = photo;
@@ -1405,10 +1988,14 @@ function loadProfileMediaViewerContent(chatId, photos) {
                 loadUserFileContent(store, big, userId);
                 break;
             }
-            case 'userProfilePhoto': {
-                photo = getProfilePhoto(photo);
-                if (!photo) break;
+            case 'chatPhotoInfo': {
+                const { small, big } = photo;
 
+                loadChatFileContent(store, small, chatId);
+                loadChatFileContent(store, big, chatId);
+                break;
+            }
+            case 'profilePhoto': {
                 const userId = getChatUserId(chatId);
 
                 const { small, big } = photo;
@@ -1456,16 +2043,21 @@ function loadUsersContent(store, ids) {
     ids.forEach(id => loadUserContent(store, id));
 }
 
-function loadChatContent(store, chatId) {
+function loadChatContent(store, chatId, full = false) {
     const chat = ChatStore.get(chatId);
     if (!chat) return;
 
     const { photo } = chat;
+    loadChatPhotoContent(store, photo, chat.id, full);
+}
+
+function loadChatPhotoContent(store, photo, chatId, full) {
     if (!photo) return;
 
-    const { small: file } = photo;
+    const { small, big } = photo;
 
-    loadChatFileContent(store, file, chatId);
+    loadChatFileContent(store, small, chatId);
+    if (full) loadChatFileContent(store, big, chatId);
 }
 
 function loadChatsContent(store, ids) {
@@ -1487,11 +2079,53 @@ function loadDraftContent(store, chatId) {
     loadReplies(store, chatId, [reply_to_message_id]);
 }
 
+export function loadRecentStickersContent(store, recent) {
+    if (!recent) return;
+
+    const { stickers } = recent;
+    loadStickersContent(store, stickers);
+}
+
 function loadStickerSetContent(store, stickerSet) {
+    // console.log('[sp] loadStickerSetContent');
     if (!stickerSet) return;
 
     const { stickers } = stickerSet;
     loadStickersContent(store, stickers);
+}
+
+export function loadBackgroundsContent(store, backgrounds) {
+    if (!backgrounds) return;
+
+    backgrounds.forEach(background => {
+        loadBackgroundContent(store, background, false);
+    });
+}
+
+export function loadBackgroundContent(store, background, full = false) {
+    if (!background) return;
+
+    switch (background.type['@type']) {
+        case 'backgroundTypeFill': {
+            break;
+        }
+        case 'backgroundTypePattern': {
+            const { document } = background;
+            if (document) {
+                loadDocumentThumbnailContent(store, document, null);
+                if (full) loadDocumentContent(store, document, null, false);
+            }
+            break;
+        }
+        case 'backgroundTypeWallpaper': {
+            const { document } = background;
+            if (document) {
+                loadDocumentThumbnailContent(store, document, null);
+                if (full) loadDocumentContent(store, document, null, false);
+            }
+            break;
+        }
+    }
 }
 
 function loadStickersContent(store, stickers) {
@@ -1499,6 +2133,9 @@ function loadStickersContent(store, stickers) {
 
     stickers.forEach(sticker => {
         loadStickerThumbnailContent(store, sticker, null);
+        if (sticker.is_animated) {
+            loadStickerContent(store, sticker, null);
+        }
     });
 }
 
@@ -1507,13 +2144,26 @@ function isGifMimeType(mimeType) {
 }
 
 function getSrc(file) {
+    const dataUrl = file && FileStore.getDataUrl(file.id);
+    if (dataUrl) return dataUrl;
+
     const blob = getBlob(file);
+
+    return FileStore.getBlobUrl(blob) || '';
+}
+
+export function getPngSrc(file) {
+    const blob = getPngBlob(file);
 
     return FileStore.getBlobUrl(blob) || '';
 }
 
 function getBlob(file) {
     return file ? FileStore.getBlob(file.id) || file.blob : null;
+}
+
+function getPngBlob(file) {
+    return file ? FileStore.getPngBlob(file.id) || file.blob : null;
 }
 
 function getDownloadedSize(file) {
@@ -1544,6 +2194,359 @@ function getExtension(fileName) {
     return parts.pop().toLowerCase();
 }
 
+function loadInstantViewContent(instantView) {
+    if (!instantView) return;
+
+    const { page_blocks } = instantView;
+    if (!page_blocks) return;
+
+    const store = FileStore.getStore();
+
+    page_blocks.forEach(pageBlock => loadPageBlockContent(store, pageBlock));
+}
+
+function loadPageBlockContent(store, b) {
+    if (!b) return;
+
+    switch (b['@type']) {
+        case 'pageBlockAnchor': {
+            break;
+        }
+        case 'pageBlockAnimation': {
+            const { animation, caption } = b;
+
+            loadAnimationThumbnailContent(store, animation, null);
+            loadAnimationContent(store, animation, null);
+            loadPageBlockContent(store, caption);
+            break;
+        }
+        case 'pageBlockAudio': {
+            const { audio, caption } = b;
+
+            loadAudioThumbnailContent(store, audio, null);
+            loadAudioContent(store, audio, null);
+            loadPageBlockContent(store, caption);
+            break;
+        }
+        case 'pageBlockAuthorDate': {
+            const { author } = b;
+
+            loadRichTextContent(store, author);
+            break;
+        }
+        case 'pageBlockBlockQuote': {
+            const { text, credit } = b;
+
+            loadRichTextContent(store, text);
+            loadRichTextContent(store, credit);
+            break;
+        }
+        // actually not a pageBlock child but load content in the same way
+        case 'pageBlockCaption': {
+            const { text, credit } = b;
+
+            loadRichTextContent(store, text);
+            loadRichTextContent(store, credit);
+            break;
+        }
+        case 'pageBlockChatLink': {
+            const { photo } = b;
+
+            loadChatPhotoContent(store, photo, 0);
+            break;
+        }
+        case 'pageBlockCollage': {
+            const { page_blocks, caption } = b;
+
+            loadPageBlockContent(store, caption);
+            page_blocks.forEach(x => loadPageBlockContent(store, x));
+            break;
+        }
+        case 'pageBlockCover': {
+            const { cover } = b;
+
+            loadPageBlockContent(store, cover);
+            break;
+        }
+        case 'pageBlockDetails': {
+            const { header, page_blocks } = b;
+
+            loadPageBlockContent(store, header);
+            page_blocks.forEach(x => loadPageBlockContent(store, x));
+            break;
+        }
+        case 'pageBlockDivider': {
+            break;
+        }
+        case 'pageBlockEmbedded': {
+            const { poster_photo, caption } = b;
+
+            loadPhotoContent(store, poster_photo, null);
+            loadPageBlockContent(store, caption);
+            break;
+        }
+        case 'pageBlockEmbeddedPost': {
+            const { author_photo, page_blocks, caption } = b;
+
+            loadPhotoContent(store, author_photo, null);
+            page_blocks.forEach(x => loadPageBlockContent(store, x));
+            loadPageBlockContent(store, caption);
+            break;
+        }
+        case 'pageBlockFooter': {
+            const { footer } = b;
+
+            loadRichTextContent(store, footer);
+            break;
+        }
+        case 'pageBlockHeader': {
+            const { header } = b;
+
+            loadRichTextContent(store, header);
+            break;
+        }
+        case 'pageBlockKicker': {
+            const { kicker } = b;
+
+            loadRichTextContent(store, kicker);
+            break;
+        }
+        case 'pageBlockList': {
+            const { items } = b;
+
+            items.forEach(x => loadPageBlockContent(store, x));
+            break;
+        }
+        // actually not a pageBlock child but load content in the same way
+        case 'pageBlockListItem': {
+            const { page_blocks } = b;
+
+            page_blocks.forEach(x => loadPageBlockContent(store, x));
+            break;
+        }
+        case 'pageBlockMap': {
+            const { caption } = b;
+
+            loadPageBlockMapContent(store, b, null);
+            loadPageBlockContent(store, caption);
+            break;
+        }
+        case 'pageBlockParagraph': {
+            const { text } = b;
+
+            loadRichTextContent(store, text);
+            break;
+        }
+        case 'pageBlockPhoto': {
+            const { photo, caption } = b;
+
+            loadPhotoContent(store, photo, null, IV_PHOTO_SIZE);
+            loadPageBlockContent(store, caption);
+            break;
+        }
+        case 'pageBlockPreformatted': {
+            const { text } = b;
+
+            loadRichTextContent(store, text);
+            break;
+        }
+        case 'pageBlockPullQuote': {
+            const { text, credit } = b;
+
+            loadRichTextContent(store, text);
+            loadRichTextContent(store, credit);
+            break;
+        }
+        case 'pageBlockRelatedArticles': {
+            const { header, articles } = b;
+
+            loadRichTextContent(store, header);
+            articles.forEach(x => loadPageBlockContent(store, x));
+            break;
+        }
+        // actually not a pageBlock child but load content in the same way
+        case 'pageBlockRelatedArticle': {
+            const { photo } = b;
+
+            loadPhotoContent(store, photo, null);
+            break;
+        }
+        case 'pageBlockSlideshow': {
+            const { page_blocks, caption } = b;
+
+            loadPageBlockContent(store, caption);
+            page_blocks.forEach(x => loadPageBlockContent(store, x));
+            break;
+        }
+        case 'pageBlockSubheader': {
+            const { subheader } = b;
+
+            loadRichTextContent(store, subheader);
+            break;
+        }
+        case 'pageBlockSubtitle': {
+            const { subtitle } = b;
+
+            loadRichTextContent(store, subtitle);
+            break;
+        }
+        case 'pageBlockTable': {
+            const { caption, cells } = b;
+
+            loadRichTextContent(store, caption);
+            cells.forEach(row => row.forEach(x => loadPageBlockContent(store, x)));
+            break;
+        }
+        // actually not a pageBlock child but load content in the same way
+        case 'pageBlockTableCell': {
+            const { text } = b;
+
+            loadRichTextContent(store, text);
+            break;
+        }
+        case 'pageBlockTitle': {
+            const { title } = b;
+
+            loadRichTextContent(store, title);
+            break;
+        }
+        case 'pageBlockVideo': {
+            const { video, caption } = b;
+
+            loadVideoThumbnailContent(store, video, null);
+            loadVideoContent(store, video, null);
+            loadPageBlockContent(store, caption);
+            break;
+        }
+        case 'pageBlockVoiceNote': {
+            const { voice_note, caption } = b;
+
+            loadVoiceNoteContent(store, voice_note, null);
+            loadPageBlockContent(store, caption);
+            break;
+        }
+    }
+}
+
+function loadRichTextContent(store, t) {
+    if (!t) return;
+
+    switch (t['@type']) {
+        case 'richTextAnchor': {
+            const { text } = t;
+
+            loadRichTextContent(store, text);
+            break;
+        }
+        case 'richTextBold': {
+            const { text } = t;
+
+            loadRichTextContent(store, text);
+            break;
+        }
+        case 'richTextEmailAddress': {
+            const { text } = t;
+
+            loadRichTextContent(store, text);
+            break;
+        }
+        case 'richTextFixed': {
+            const { text } = t;
+
+            loadRichTextContent(store, text);
+            break;
+        }
+        case 'richTextIcon': {
+            const { document } = t;
+
+            loadDocumentThumbnailContent(store, document, null);
+            loadDocumentContent(store, document, null, false);
+            break;
+        }
+        case 'richTextItalic': {
+            const { text } = t;
+
+            loadRichTextContent(store, text);
+            break;
+        }
+        case 'richTextMarked': {
+            const { text } = t;
+
+            loadRichTextContent(store, text);
+            break;
+        }
+        case 'richTextPhoneNumber': {
+            const { text } = t;
+
+            loadRichTextContent(store, text);
+            break;
+        }
+        case 'richTextPlain': {
+            const { text } = t;
+
+            loadRichTextContent(store, text);
+            break;
+        }
+        case 'richTexts': {
+            const { texts } = t;
+
+            texts.forEach(x => loadRichTextContent(store, x));
+            break;
+        }
+        case 'richTextStrikethrough': {
+            const { text } = t;
+
+            loadRichTextContent(store, text);
+            break;
+        }
+        case 'richTextSubscript': {
+            const { text } = t;
+
+            loadRichTextContent(store, text);
+            break;
+        }
+        case 'richTextSuperscript': {
+            const { text } = t;
+
+            loadRichTextContent(store, text);
+            break;
+        }
+        case 'richTextUnderline': {
+            const { text } = t;
+
+            loadRichTextContent(store, text);
+            break;
+        }
+        case 'richTextUrl': {
+            const { text } = t;
+
+            loadRichTextContent(store, text);
+            break;
+        }
+    }
+}
+
+function getAnimationData(file) {
+    return new Promise(resolve => {
+        if (!file) {
+            resolve(null);
+            return;
+        }
+
+        const blob = FileStore.getBlob(file.id);
+        if (!blob) {
+            resolve(null);
+            return;
+        }
+
+        const fileReader = new FileReader();
+        fileReader.onload = event => resolve(JSON.parse(event.target.result));
+        fileReader.onerror = () => resolve(null);
+        fileReader.onabort = () => resolve(null);
+        fileReader.readAsText(blob);
+    });
+}
+
 export {
     getFileSize,
     getSizeString,
@@ -1556,23 +2559,26 @@ export {
     cancelPreloadMediaViewerContent,
     loadProfileMediaViewerContent,
     preloadProfileMediaViewerContent,
-    loadDraftContent,
-    loadUserContent,
     loadChatContent,
     loadChatsContent,
-    loadUsersContent,
+    loadDraftContent,
+    loadInstantViewContent,
     loadStickerContent,
-    loadStickerThumbnailContent,
     loadStickersContent,
     loadStickerSetContent,
+    loadStickerThumbnailContent,
+    loadUserContent,
+    loadUsersContent,
     saveOrDownload,
     download,
     getMediaFile,
-    getMediaPreviewFile,
     isGifMimeType,
     getSrc,
     getBlob,
     getDownloadedSize,
     getUploadedSize,
-    getExtension
+    getExtension,
+    getViewerFile,
+    getViewerThumbnail,
+    getAnimationData
 };
